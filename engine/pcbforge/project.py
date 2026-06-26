@@ -34,7 +34,9 @@ class BuildResult:
         return not self.errors and self.erc_errors == 0
 
     def to_dict(self) -> dict:
-        return self.__dict__.copy()
+        d = self.__dict__.copy()
+        d["ok"] = self.ok
+        return d
 
 
 def build_all(design: Design, out_dir: str | Path,
