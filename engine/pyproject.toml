@@ -1,0 +1,26 @@
+[project]
+name = "pcbforge"
+version = "0.1.0"
+description = "AI-native PCB design engine: a high-level circuit model that compiles to real KiCad netlists, schematics and boards."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "agribeacon" }]
+dependencies = [
+    "skidl>=2.0.1",
+    "kiutils>=1.4.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+pcbforge = "pcbforge.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pcbforge*"]

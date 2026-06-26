@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+build/
+dist/
+
+# Node
+node_modules/
+web/dist/
+.vite/
+
+# Engine build artifacts / generated boards
+out/
+*.erc
+*.log
+.skidl_lib_cache/
+lib_sklib_*.py
+*_sklib.py
+
+# KiCad backups
+*-bak
+*.kicad_pcb-bak
+fp-info-cache
+
+# OS
+.DS_Store
