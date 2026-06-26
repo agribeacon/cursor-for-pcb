@@ -73,6 +73,27 @@ def find_cli() -> str:
     raise KicadNotFound("kicad-cli not found on PATH or in the KiCad app bundle.")
 
 
+def find_pcbnew_python() -> str | None:
+    """Path to KiCad's bundled Python (the one that can ``import pcbnew``).
+
+    Used for zone filling, which needs the GUI engine. Returns None if not
+    found, so callers can degrade gracefully.
+    """
+    env = os.environ.get("KICAD_PYTHON")
+    if env and Path(env).exists():
+        return env
+    candidates = list(
+        (Path.home() / "Applications/KiCad/KiCad.app/Contents/Frameworks/"
+         "Python.framework/Versions").glob("*/bin/python3*"))
+    candidates += list(
+        Path("/Applications/KiCad/KiCad.app/Contents/Frameworks/"
+             "Python.framework/Versions").glob("*/bin/python3*"))
+    for c in candidates:
+        if c.exists():
+            return str(c)
+    return None
+
+
 _DONE = False
 
 

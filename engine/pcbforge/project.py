@@ -30,6 +30,7 @@ class BuildResult:
     vias: int = 0
     routed: int = 0
     unrouted: int = 0
+    poured: list = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
@@ -68,24 +69,69 @@ def build_all(design: Design, out_dir: str | Path,
     except Exception as exc:
         res.errors.append(f"netlist/ERC failed: {exc}")
 
-    # board + PCB SVG + DRC
+    # board + PCB SVG + DRC. Try both placement strategies and keep whichever
+    # routes cleaner (fewest copper violations, then fewest unrouted links).
     try:
         pcb_file = out / f"{design.name}.kicad_pcb"
-        build_info = pcb.build_board(design, pcb_file)
-        rstats = build_info.get("route", {}) or {}
+        # Candidate strategies, adaptive to keep small boards fast. Order
+        # matters: ties are broken by *first*, so the GND-pour candidate is
+        # listed first (real boards want a ground plane).
+        gnd_pads = max((len(n.nodes) for name, n in design.nets.items()
+                        if name.upper() in pcb.POUR_NETS), default=0)
+        candidates = []
+        if drc and gnd_pads >= 3:
+            candidates.append(("pour", "insertion", True))   # ground plane
+        candidates.append(("ins", "insertion", False))        # baseline
+        if drc and len(design.components) > 6:
+            candidates.append(("con", "connectivity", False)) # cluster nets
+        best = None  # (score_tuple, rstats, drc_report, tmp_path)
+        for label, order, pour in candidates:
+            tmp = out / f".cand_{label}.kicad_pcb"
+            info = pcb.build_board(design, tmp, order=order, pour=pour)
+            rs = info.get("route", {}) or {}
+            rep = render.run_drc(tmp) if drc else None
+            copper = _copper_violations(rep) if rep else 0
+            unconn = rep.unconnected if rep else 0
+            # Compare on electrical quality only (shorts/clearance/unconnected,
+            # then unrouted links, then via count). Cosmetic silk warnings are
+            # ignored, and since the pour candidate is listed first it wins ties
+            # — giving a ground plane whenever it's electrically just as clean.
+            score = (copper + unconn, rs.get("failed", 0), rs.get("vias", 0))
+            if best is None or score < best[0]:
+                best = (score, rs, rep, tmp)
+            if not drc:
+                break  # no DRC to compare on; first candidate wins
+        _, rstats, rep, tmp = best
+        win_drc = Path(tmp).with_suffix(".drc.json")
+        Path(tmp).replace(pcb_file)
+        if win_drc.exists():
+            win_drc.replace(pcb_file.with_suffix(".drc.json"))
+        # drop the other candidates' leftovers
+        for label, _o, _p in candidates:
+            (out / f".cand_{label}.kicad_pcb").unlink(missing_ok=True)
+            (out / f".cand_{label}.drc.json").unlink(missing_ok=True)
         res.tracks = rstats.get("tracks", 0)
         res.vias = rstats.get("vias", 0)
         res.routed = rstats.get("routed", 0)
         res.unrouted = rstats.get("failed", 0)
+        res.poured = rstats.get("poured", [])
         res.pcb_file = str(pcb_file)
         res.pcb_svg = str(out / "pcb.svg")
         render.pcb_to_svg(pcb_file, res.pcb_svg)
-        if drc:
-            d = render.run_drc(pcb_file)
-            res.drc_violations, res.drc_unconnected = d.violations, d.unconnected
+        if rep:
+            res.drc_violations, res.drc_unconnected = rep.violations, rep.unconnected
         if gerbers:
             render.export_gerbers(pcb_file, out / "gerbers")
     except Exception as exc:
         res.errors.append(f"PCB build failed: {exc}")
 
     return res
+
+
+def _copper_violations(rep) -> int:
+    """Count only electrically-meaningful DRC violations (shorts/clearance),
+    ignoring cosmetic silkscreen warnings."""
+    if not rep or not rep.raw:
+        return 0
+    bad = ("shorting_items", "clearance", "track_dangling", "copper_edge_clearance")
+    return sum(1 for v in rep.raw.get("violations", []) if v.get("type") in bad)

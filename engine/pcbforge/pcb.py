@@ -17,8 +17,11 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
-from . import kicad_env, library, route as _route
+from . import kicad_env, library, route as _route, zone as _zone
 from .model import Design
+
+# Net names that get a copper pour instead of routed tracks (case-insensitive).
+POUR_NETS = {"GND", "GROUND", "AGND", "DGND"}
 
 
 def _load_footprint(lib_id: str):
@@ -52,6 +55,46 @@ def _set_text(fp, kind: str, value: str, hide: bool = False) -> None:
             item.value = value
 
 
+def _order_components(design: Design) -> list[str]:
+    """Order refs so strongly-connected parts are placed adjacently.
+
+    Greedy seriation on the net graph: edges are weighted ``1/(n-1)`` per net so
+    a fat net like GND (connects everything) barely influences ordering, while
+    a 2-pin signal net pulls its two parts together. Result = shorter traces and
+    fewer crossings for the autorouter.
+    """
+    refs = list(design.components)
+    if len(refs) <= 2:
+        return refs
+    weight: dict[tuple[str, str], float] = {}
+    for net in design.nets.values():
+        members = sorted({n.ref for n in net.nodes})
+        if len(members) < 2:
+            continue
+        w = 1.0 / (len(members) - 1)
+        for i, a in enumerate(members):
+            for b in members[i + 1:]:
+                weight[(a, b)] = weight.get((a, b), 0) + w
+                weight[(b, a)] = weight.get((b, a), 0) + w
+
+    degree = {r: 0.0 for r in refs}
+    for (a, _b), w in weight.items():
+        degree[a] += w
+    placed = [max(refs, key=lambda r: degree[r])]
+    remaining = set(refs) - set(placed)
+    while remaining:
+        # pick the unplaced part most connected to what's already placed
+        best, best_score = None, -1.0
+        for r in remaining:
+            score = sum(weight.get((r, p), 0) for p in placed)
+            if score > best_score or (score == best_score and
+                                      (best is None or degree[r] > degree[best])):
+                best, best_score = r, score
+        placed.append(best)
+        remaining.discard(best)
+    return placed
+
+
 def _fp_bbox(fp) -> tuple[float, float, float, float]:
     """Footprint extent relative to its origin: (minx, miny, maxx, maxy).
 
@@ -77,8 +120,14 @@ def _fp_bbox(fp) -> tuple[float, float, float, float]:
 
 def build_board(design: Design, path: str | Path,
                 columns: int | None = None, gap: float = 3.5,
-                route: bool = True) -> dict:
-    """Generate a board file. Returns a dict with the path + routing stats."""
+                route: bool = True, order: str = "insertion",
+                pour: bool = True) -> dict:
+    """Generate a board file. Returns a dict with the path + routing stats.
+
+    ``order`` chooses component placement: ``"insertion"`` keeps the user's
+    add order (usually signal-flow and already good); ``"connectivity"`` groups
+    strongly-connected parts. The project layer tries both and keeps whichever
+    routes cleaner."""
     from kiutils.board import Board
     from kiutils.items.common import Net, Position
     from kiutils.items.gritems import GrRect
@@ -102,9 +151,12 @@ def build_board(design: Design, path: str | Path,
                 pad_net[(node.ref, pad_no)] = (net_codes[name], name)
 
     # ---- load footprints + measure them --------------------------------
+    refs = (_order_components(design) if order == "connectivity"
+            else list(design.components))
     loaded = []
     cell_w = cell_h = 1.0
-    for ref, comp in design.components.items():
+    for ref in refs:
+        comp = design.components[ref]
         fp = _load_footprint(comp.resolved_footprint())
         bx0, by0, bx1, by1 = _fp_bbox(fp)
         loaded.append((ref, comp, fp, (bx0, by0, bx1, by1)))
@@ -155,4 +207,12 @@ def build_board(design: Design, path: str | Path,
 
     path = Path(path)
     board.to_file(str(path))
+
+    # A GND pour is additive: GND is still routed (so no pad is ever orphaned on
+    # an isolated island), and the pour ties the plane together for real-board
+    # realism + return-current. Whether it helps is decided by build_all, which
+    # keeps the cleaner of poured / un-poured candidates.
+    pour_nets = [n for n in design.nets if n.upper() in POUR_NETS] if pour else []
+    poured = _zone.fill_zones(path, pour_nets) if pour_nets else False
+    stats["poured"] = pour_nets if poured else []
     return {"path": str(path), "route": stats}

@@ -72,11 +72,15 @@ def _abs_pads(board):
     return pads
 
 
-def route_board(board) -> dict:
-    """Route the board in place. Returns {nets, routed, failed, tracks, vias}."""
+def route_board(board, skip_net_codes: set[int] | None = None) -> dict:
+    """Route the board in place. Returns {nets, routed, failed, tracks, vias}.
+
+    ``skip_net_codes`` are nets the router leaves alone (e.g. a GND net that a
+    copper pour will connect instead)."""
     from kiutils.items.brditems import Segment, Via
     from kiutils.items.common import Net, Position
 
+    skip = skip_net_codes or set()
     pads = _abs_pads(board)
     if not pads:
         return {"nets": 0, "routed": 0, "failed": 0, "tracks": 0, "vias": 0}
@@ -152,7 +156,7 @@ def route_board(board) -> dict:
     # route nets with fewer terminals first (easier, frees space)
     for net in sorted(net_terms, key=lambda n: len(net_terms[n])):
         terms = net_terms[net]
-        if len(terms) < 2:
+        if len(terms) < 2 or net in skip:
             continue
         ok = _route_net(net, terms, owner, W, H, segments, vias,
                         to_mm, pad_xy, Segment, Via, Net, Position)

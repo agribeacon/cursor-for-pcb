@@ -76,6 +76,14 @@ python3.12 -m venv .venv
 Type `load usb` then `build`, or go incremental:
 `new myboard` → `add resistor 330` → `add led` → `connect vcc r1.1` → `build`.
 
+**Real AI chat:** export an API key and Claude drives the engine via tool use —
+describe a board in plain English and it adds parts, wires nets, and builds:
+```bash
+ANTHROPIC_API_KEY=sk-ant-... .venv/bin/python web/serve.py
+# optional model override (default claude-opus-4-8):
+PCBFORGE_LLM_MODEL=claude-haiku-4-5 ANTHROPIC_API_KEY=sk-ant-... .venv/bin/python web/serve.py
+```
+
 ### MCP server (drive it from Claude Code)
 
 ```bash
@@ -120,23 +128,32 @@ stock KiCad symbol + footprint with friendly pin names (`U1.vin`, `D1.a`,
 
 ## Status & roadmap
 
-**Working today:** chat/MCP-driven capture, real KiCad netlist + ERC,
-courtyard-aware placement, **2-layer autorouting** (copper tracks + vias),
-multi-pad power pins (USB-C VBUS/GND fan out to all pads), schematic & PCB SVG,
-DRC, Gerber export, 4 example circuits, web UI, 8 passing tests.
+**Working today:**
+- chat/MCP-driven capture; **LLM-in-the-loop web chat** — set `ANTHROPIC_API_KEY`
+  and Claude drives the engine via tool use (offline parser fallback otherwise)
+- real KiCad netlist + ERC; **2-layer autorouting** (copper tracks + vias)
+- **GND copper pour** (filled ground plane via KiCad's `pcbnew`) — auto-applied
+  when it routes cleaner
+- **connectivity-aware placement** + courtyard-aware spacing; `build_all` tries
+  multiple placement/pour strategies and keeps the cleanest by DRC
+- **multi-pad power pins** (USB-C VBUS/GND fan out to all pads)
+- **28-part catalog** (passives, transistors, MOSFETs, diodes, crystal, ESP32,
+  555, op-amp, regulators, USB-C/micro, headers, screw terminal…)
+- schematic & PCB SVG, DRC, Gerber export, 4 example circuits, web UI, 8 tests
 
 Boards without fine-pitch parts (e.g. `power_led_board`, 11 parts) autoroute
-**100% connected and copper-DRC-clean**. The remaining silk warnings are
-cosmetic (reference text over pads).
+**100% connected, copper-DRC-clean, with a ground plane**. Remaining warnings
+are cosmetic silk (reference text over pads).
 
-**Known limitation:** very fine-pitch connectors (USB-C at 0.5 mm pitch) need
-proper fanout vias the basic maze router can't yet place — the `usb_3v3`
-example routes fully connected but leaves a few clearance/short warnings in the
-connector area. Commercial routers struggle here too; it's the next target.
+**Known limitation:** very fine-pitch connectors (USB-C at 0.5 mm pitch) still
+leave a few clearance/short warnings in the connector area — dedicated escape
+(micro-)via fanout is hard for a gridded maze router and commercial routers
+struggle here too. The board still routes fully *connected*; the warnings are
+local to the connector.
 
-**Next:** fine-pitch fanout (per-pad escape vias) · ground/power copper pours
-(zones) · richer part library (MCUs, sensors) · LLM-in-the-loop web chat ·
-placement that minimises crossings · constraints from the prompt.
+**Next:** fine-pitch escape-via fanout · power pours beyond GND · constraints
+from the prompt (board size, layer count) · streaming LLM chat with live board
+updates per tool call.
 
 ## Tests
 

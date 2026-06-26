@@ -154,4 +154,9 @@ _PREFIXES = {
     "resistor": "R", "capacitor": "C", "capacitor_polarized": "C",
     "led": "D", "diode": "D", "button": "SW", "header_1x2": "J",
     "header_1x4": "J", "regulator_3v3": "U", "usb_c": "J",
+    "inductor": "L", "diode_schottky": "D", "zener": "D",
+    "npn": "Q", "nmos": "Q", "mosfet_logic": "Q", "crystal": "Y",
+    "fuse": "F", "potentiometer": "RV", "ne555": "U", "opamp": "U",
+    "esp32": "U", "reg_5v": "U", "reg_7805": "U", "screw_2": "J",
+    "header_1x6": "J", "header_2x4": "J", "usb_micro": "J",
 }

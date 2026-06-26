@@ -20,7 +20,7 @@ from starlette.staticfiles import StaticFiles
 from pcbforge import Design, build_all, library, schematic_svg
 from pcbforge.circuits import EXAMPLES
 
-from . import agent
+from . import agent, llm
 
 FRONTEND = Path(__file__).resolve().parent.parent / "frontend"
 WORKSPACE = Path(os.environ.get("PCBFORGE_WORKSPACE",
@@ -28,7 +28,7 @@ WORKSPACE = Path(os.environ.get("PCBFORGE_WORKSPACE",
 WORKSPACE.mkdir(parents=True, exist_ok=True)
 
 # ---- session state ------------------------------------------------------
-_state = {"design": Design(name="untitled"), "build": None}
+_state = {"design": Design(name="untitled"), "build": None, "history": []}
 
 
 def _out_dir(d: Design) -> Path:
@@ -73,12 +73,19 @@ async def parts(request):
 async def chat(request):
     body = await request.json()
     message = body.get("message", "")
+    if llm.available():
+        # Claude drives the engine via tool use; it calls `build` itself.
+        _state["out_dir"] = _out_dir
+        reply, did_build = llm.run(_state, message, _state.get("history", []))
+        build_result = _state["build"] if did_build else None
+        return JSONResponse({"reply": reply, "did_build": did_build,
+                             "state": _snapshot(build_result), "engine": "llm"})
     design, reply, should_build = agent.handle(_state["design"], message)
     _state["design"] = design
     _state["build"] = None
     build_result = _do_build() if should_build else None
     return JSONResponse({"reply": reply, "did_build": should_build,
-                         "state": _snapshot(build_result)})
+                         "state": _snapshot(build_result), "engine": "parser"})
 
 
 async def build(request):

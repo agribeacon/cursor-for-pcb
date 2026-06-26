@@ -81,6 +81,88 @@ _reg(PartType("regulator_3v3", "Regulator_Linear", "AMS1117-3.3",
                "vi": "3", "vin": "3", "in": "3"},
               "1A LDO 3.3V", "AMS1117-3.3"), "ldo", "ams1117", "vreg")
 
+_reg(PartType("inductor", "Device", "L", "Inductor_SMD:L_0805_2012Metric",
+              {"1": "1", "2": "2"}, "Inductor", "10uH"), "l", "ind")
+
+_reg(PartType("diode_schottky", "Device", "D_Schottky", "Diode_SMD:D_SOD-123",
+              {"a": "2", "anode": "2", "k": "1", "cathode": "1", "1": "1", "2": "2"},
+              "Schottky diode"), "schottky")
+
+_reg(PartType("zener", "Device", "D_Zener", "Diode_SMD:D_SOD-123",
+              {"a": "2", "anode": "2", "k": "1", "cathode": "1", "1": "1", "2": "2"},
+              "Zener diode"), "diode_zener")
+
+_reg(PartType("npn", "Transistor_BJT", "BC547", "Package_TO_SOT_SMD:SOT-23",
+              {"c": "1", "collector": "1", "b": "2", "base": "2",
+               "e": "3", "emitter": "3"}, "NPN transistor"), "transistor", "bjt")
+
+_reg(PartType("nmos", "Transistor_FET", "2N7000", "Package_TO_SOT_SMD:SOT-23",
+              {"s": "1", "source": "1", "g": "2", "gate": "2",
+               "d": "3", "drain": "3"}, "N-channel MOSFET"), "mosfet")
+
+_reg(PartType("mosfet_logic", "Transistor_FET", "BSS138",
+              "Package_TO_SOT_SMD:SOT-23",
+              {"g": "1", "gate": "1", "s": "2", "source": "2",
+               "d": "3", "drain": "3"}, "Logic-level N-MOSFET"), "bss138")
+
+_reg(PartType("crystal", "Device", "Crystal",
+              "Crystal:Crystal_SMD_2012-2Pin_2.0x1.2mm",
+              {"1": "1", "2": "2"}, "Crystal", "16MHz"), "xtal")
+
+_reg(PartType("fuse", "Device", "Fuse", "Fuse:Fuse_0805_2012Metric",
+              {"1": "1", "2": "2"}, "Fuse"), "f")
+
+_reg(PartType("potentiometer", "Device", "R_Potentiometer",
+              "Potentiometer_THT:Potentiometer_Bourns_3296W_Vertical",
+              {"1": "1", "2": "2", "3": "3", "w": "2", "wiper": "2"},
+              "Potentiometer", "10k"), "pot")
+
+_reg(PartType("ne555", "Timer", "NE555P", "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm",
+              {"gnd": "1", "trig": "2", "out": "3", "rst": "4", "reset": "4",
+               "cont": "5", "thres": "6", "thresh": "6", "disch": "7", "vcc": "8"},
+              "555 timer"), "555", "timer")
+
+_reg(PartType("opamp", "Amplifier_Operational", "LM358",
+              "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm",
+              {"out": "1", "in-": "2", "inn": "2", "in+": "3", "inp": "3",
+               "vee": "4", "v-": "4", "gnd": "4", "vcc": "8", "v+": "8"},
+              "Dual op-amp (channel A)"), "lm358")
+
+# ESP32-WROOM-32 module. GND is multi-pad; pin 2 = 3V3, pin 3 = EN.
+_reg(PartType("esp32", "RF_Module", "ESP32-WROOM-32", "RF_Module:ESP32-WROOM-32",
+              {"gnd": ["1", "15", "38", "39"], "3v3": "2", "vcc": "2",
+               "en": "3", "reset": "3", "io0": "25", "boot": "25", "io2": "24"},
+              "ESP32-WROOM-32 Wi-Fi/BT module"), "wroom", "esp")
+
+_reg(PartType("reg_5v", "Regulator_Linear", "AMS1117-5.0",
+              "Package_TO_SOT_SMD:SOT-223-3_TabPin2",
+              {"gnd": "1", "vo": "2", "vout": "2", "out": "2",
+               "vi": "3", "vin": "3", "in": "3"},
+              "1A LDO 5.0V", "AMS1117-5.0"), "regulator_5v", "ldo5")
+
+_reg(PartType("reg_7805", "Regulator_Linear", "L7805",
+              "Package_TO_SOT_SMD:SOT-223-3_TabPin2",
+              {"in": "1", "vin": "1", "vi": "1", "gnd": "2",
+               "out": "3", "vout": "3", "vo": "3"},
+              "7805 5V regulator", "L7805"), "l7805", "7805")
+
+_reg(PartType("screw_2", "Connector", "Screw_Terminal_01x02",
+              "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-2_1x02_P5.00mm_Horizontal",
+              {"1": "1", "2": "2"}, "2-pin screw terminal"), "terminal", "screw")
+
+_reg(PartType("header_1x6", "Connector_Generic", "Conn_01x06",
+              "Connector_PinHeader_2.54mm:PinHeader_1x06_P2.54mm_Vertical",
+              {str(i): str(i) for i in range(1, 7)}, "6-pin header"), "conn6")
+
+_reg(PartType("header_2x4", "Connector_Generic", "Conn_02x04_Odd_Even",
+              "Connector_PinHeader_2.54mm:PinHeader_2x04_P2.54mm_Vertical",
+              {str(i): str(i) for i in range(1, 9)}, "2x4 header"), "conn2x4")
+
+_reg(PartType("usb_micro", "Connector", "USB_B_Micro",
+              "Connector_USB:USB_Micro-B_Amphenol_10103594-0001LF_Horizontal",
+              {"vbus": "1", "vcc": "1", "dm": "2", "dp": "3", "id": "4",
+               "gnd": "5", "shield": "SH"}, "USB Micro-B receptacle"), "microusb")
+
 # USB-C receptacle (16-pin USB2.0 symbol; GCT footprint has matching pads).
 # Power pins are spread across all their physical pads so VBUS/GND carry full
 # current and both CC/D+/D- orientations are wired.
