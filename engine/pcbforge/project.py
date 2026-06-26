@@ -26,6 +26,10 @@ class BuildResult:
     erc_warnings: int = 0
     drc_violations: int = 0
     drc_unconnected: int = 0
+    tracks: int = 0
+    vias: int = 0
+    routed: int = 0
+    unrouted: int = 0
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
@@ -67,7 +71,12 @@ def build_all(design: Design, out_dir: str | Path,
     # board + PCB SVG + DRC
     try:
         pcb_file = out / f"{design.name}.kicad_pcb"
-        pcb.build_board(design, pcb_file)
+        build_info = pcb.build_board(design, pcb_file)
+        rstats = build_info.get("route", {}) or {}
+        res.tracks = rstats.get("tracks", 0)
+        res.vias = rstats.get("vias", 0)
+        res.routed = rstats.get("routed", 0)
+        res.unrouted = rstats.get("failed", 0)
         res.pcb_file = str(pcb_file)
         res.pcb_svg = str(out / "pcb.svg")
         render.pcb_to_svg(pcb_file, res.pcb_svg)

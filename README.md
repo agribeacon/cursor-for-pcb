@@ -21,7 +21,13 @@ suite — plus two pure-Python libraries:
 |------|------|------|
 | Circuit capture | **[SKiDL](https://github.com/devbisme/skidl)** | describe a circuit in Python → real KiCad **netlist** + **ERC** |
 | Board authoring | **[kiutils](https://github.com/mvnmgrx/kiutils)** | read/write `.kicad_pcb` / `.kicad_sch` directly (no GUI needed) |
+| Autorouting | **built-in** | 2-layer Lee/maze router emits real copper tracks + vias |
 | Render / verify / fab | **`kicad-cli`** | PCB→SVG, **DRC**, **Gerber** + drill export |
+
+![Routed board](docs/img/pcb_routed.png)
+
+*An autorouted 2-layer board — red = top copper, blue = bottom copper, vias where
+traces change layer. Generated from chat, DRC-clean (no shorts/clearance).*
 
 Because everything is plain text built on stock KiCad libraries, an LLM can
 manipulate the design as **structured data and code** — the format LLMs are
@@ -56,10 +62,10 @@ Requires **KiCad 8/9/10** installed (for libraries + `kicad-cli`) and Python ≥
 python3.12 -m venv .venv
 .venv/bin/python -m pip install -e ./engine -e ./mcp-server "mcp[cli]" uvicorn cairosvg
 
-# build an example board from the CLI
+# build an example board from the CLI (autorouted + DRC-clean)
 .venv/bin/pcbforge list
-.venv/bin/pcbforge build usb_3v3 -o out/usb_3v3
-#  -> out/usb_3v3/{usb_c_3v3.net, usb_c_3v3.kicad_pcb, schematic.svg, pcb.svg}
+.venv/bin/pcbforge build power_led_board -o out/power_led_board
+#  -> out/power_led_board/{*.net, *.kicad_pcb, schematic.svg, pcb.svg, gerbers/}
 ```
 
 ### Web UI
@@ -114,13 +120,23 @@ stock KiCad symbol + footprint with friendly pin names (`U1.vin`, `D1.a`,
 
 ## Status & roadmap
 
-**Working today:** chat/MCP-driven capture, real KiCad netlist + ERC, board
-file with deterministic grid placement + correct ratsnest, schematic & PCB
-SVG, DRC, Gerber export, 3 example circuits, web UI, 6 passing tests.
+**Working today:** chat/MCP-driven capture, real KiCad netlist + ERC,
+courtyard-aware placement, **2-layer autorouting** (copper tracks + vias),
+multi-pad power pins (USB-C VBUS/GND fan out to all pads), schematic & PCB SVG,
+DRC, Gerber export, 4 example circuits, web UI, 8 passing tests.
 
-**Next:** autorouting (push traces, not just placement) · richer part library
-(MCUs, connectors, sensors) · LLM-in-the-loop in the web chat · component
-value/footprint suggestions · board outline & constraints from the prompt.
+Boards without fine-pitch parts (e.g. `power_led_board`, 11 parts) autoroute
+**100% connected and copper-DRC-clean**. The remaining silk warnings are
+cosmetic (reference text over pads).
+
+**Known limitation:** very fine-pitch connectors (USB-C at 0.5 mm pitch) need
+proper fanout vias the basic maze router can't yet place — the `usb_3v3`
+example routes fully connected but leaves a few clearance/short warnings in the
+connector area. Commercial routers struggle here too; it's the next target.
+
+**Next:** fine-pitch fanout (per-pad escape vias) · ground/power copper pours
+(zones) · richer part library (MCUs, sensors) · LLM-in-the-loop web chat ·
+placement that minimises crossings · constraints from the prompt.
 
 ## Tests
 

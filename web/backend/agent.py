@@ -16,8 +16,9 @@ from pcbforge import Design, library
 from pcbforge.circuits import EXAMPLES, build_example
 
 _EXAMPLE_ALIASES = {
-    "usb": "usb_3v3", "usb-c": "usb_3v3", "usbc": "usb_3v3",
-    "regulator": "usb_3v3", "3v3": "usb_3v3", "power": "usb_3v3",
+    "usb": "usb_3v3", "usb-c": "usb_3v3", "usbc": "usb_3v3", "3v3": "usb_3v3",
+    "power": "power_led_board", "board": "power_led_board",
+    "regulator": "power_led_board", "leds": "power_led_board",
     "led": "led_resistor", "blinker": "led_resistor", "blink": "led_resistor",
     "divider": "voltage_divider", "voltage": "voltage_divider",
 }

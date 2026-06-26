@@ -21,8 +21,10 @@ class PartType:
     lib: str                      # KiCad symbol library, e.g. "Device"
     part: str                     # KiCad symbol name, e.g. "R"
     footprint: str                # default footprint lib_id
-    #: friendly pin name -> KiCad pin *number* (as string)
-    pin_aliases: dict[str, str] = field(default_factory=dict)
+    #: friendly pin name -> KiCad pin *number(s)*. A value may be a single pad
+    #: ("2") or a list of pads that are electrically one pin — e.g. a USB-C
+    #: VBUS spread across A4/A9/B4/B9 for current capacity.
+    pin_aliases: dict[str, "str | list[str]"] = field(default_factory=dict)
     description: str = ""
     default_value: str = ""
 
@@ -79,11 +81,16 @@ _reg(PartType("regulator_3v3", "Regulator_Linear", "AMS1117-3.3",
                "vi": "3", "vin": "3", "in": "3"},
               "1A LDO 3.3V", "AMS1117-3.3"), "ldo", "ams1117", "vreg")
 
-# USB-C receptacle (power-only 16-pin symbol; GCT footprint has matching pads).
+# USB-C receptacle (16-pin USB2.0 symbol; GCT footprint has matching pads).
+# Power pins are spread across all their physical pads so VBUS/GND carry full
+# current and both CC/D+/D- orientations are wired.
 _reg(PartType("usb_c", "Connector", "USB_C_Receptacle_USB2.0_16P",
               "Connector_USB:USB_C_Receptacle_GCT_USB4085",
-              {"vbus": "A4", "gnd": "A1", "cc1": "A5", "cc2": "B5",
-               "dp": "A6", "dm": "A7", "shield": "SH"},
+              {"vbus": ["A4", "A9", "B4", "B9"],
+               "gnd": ["A1", "A12", "B1", "B12"],
+               "cc1": "A5", "cc2": "B5",
+               "dp": ["A6", "B6"], "dm": ["A7", "B7"],
+               "shield": "SH"},
               "USB 2.0 Type-C receptacle"), "usbc", "type_c")
 
 
@@ -96,21 +103,34 @@ def resolve(type_key: str) -> PartType:
     return pt
 
 
-def pin_number(pt: PartType, pin: str) -> str:
-    """Resolve a friendly pin name to a KiCad pin number string."""
+def pin_numbers(pt: PartType, pin: str) -> list[str]:
+    """Resolve a friendly pin name to the list of KiCad pad numbers it maps to.
+
+    Most pins are one pad; power pins (USB-C VBUS/GND) expand to several.
+    An unknown name is passed through as a literal single pad number.
+    """
     p = str(pin).strip()
-    return pt.pin_aliases.get(p.lower(), p)
+    val = pt.pin_aliases.get(p.lower(), p)
+    return list(val) if isinstance(val, list) else [val]
+
+
+def pin_number(pt: PartType, pin: str) -> str:
+    """Backward-compatible single-pad resolver (returns the first pad)."""
+    return pin_numbers(pt, pin)[0]
 
 
 def list_types() -> list[dict]:
     seen = {}
     for pt in CATALOG.values():
         if pt.key not in seen:
+            pads = set()
+            for v in pt.pin_aliases.values():
+                pads.update(v if isinstance(v, list) else [v])
             seen[pt.key] = {
                 "type": pt.key,
                 "symbol": f"{pt.lib}:{pt.part}",
                 "footprint": pt.footprint,
-                "pins": sorted(set(pt.pin_aliases.values())),
+                "pins": sorted(pads),
                 "pin_names": sorted(pt.pin_aliases.keys()),
                 "description": pt.description,
                 "default_value": pt.default_value,

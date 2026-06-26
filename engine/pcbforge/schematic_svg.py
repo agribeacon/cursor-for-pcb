@@ -33,12 +33,11 @@ def _net_color(name: str, idx: int) -> str:
 def render(design: Design, cols: int = 3) -> str:
     # net -> color
     net_color = {n: _net_color(n, i) for i, n in enumerate(design.nets.keys())}
-    # (ref, pin_number) -> net name
-    pin_net: dict[tuple[str, str], str] = {}
+    # ref -> ordered list of (friendly_pin, net_name) it connects to
+    comp_pins: dict[str, list[tuple[str, str]]] = {r: [] for r in design.components}
     for name, net in design.nets.items():
         for node in net.nodes:
-            pt = library.resolve(design.components[node.ref].type)
-            pin_net[(node.ref, library.pin_number(pt, node.pin))] = name
+            comp_pins.setdefault(node.ref, []).append((node.pin, name))
 
     box_w, box_h = 150, 100
     gap_x, gap_y = 150, 80
@@ -75,13 +74,12 @@ def render(design: Design, cols: int = 3) -> str:
         out.append(f'<text x="{x + box_w/2}" y="{y + 68}" fill="#5c6370" '
                    f'font-size="10" text-anchor="middle">{escape(pt.key)}</text>')
 
-        # pin stubs: left side for first half, right for the rest
-        pins = sorted(set(pt.pin_aliases.values()),
-                      key=lambda s: (len(s), s))
-        for pidx, pin in enumerate(pins):
-            net = pin_net.get((ref, pin))
+        # one stub per net this component touches (net-centric, readable even
+        # for many-pin parts like USB-C where one net spans several pads)
+        stubs = comp_pins.get(ref, [])
+        for pidx, (pin, net) in enumerate(stubs):
             left = pidx % 2 == 0
-            py = y + 24 + (pidx // 2) * 24
+            py = y + 24 + (pidx // 2) * 22
             if py > y + box_h - 8:
                 py = y + box_h - 8
             if left:
@@ -93,9 +91,9 @@ def render(design: Design, cols: int = 3) -> str:
                        f'stroke="{col_line}" stroke-width="2"/>')
             out.append(f'<circle cx="{sx0 if left else sx1}" cy="{py}" r="3" '
                        f'fill="{col_line}"/>')
-            label = net if net else pin
             out.append(f'<text x="{tx}" y="{py + 4}" fill="{col_line}" '
-                       f'font-size="11" text-anchor="{anc}">{escape(label)}</text>')
+                       f'font-size="11" text-anchor="{anc}">{escape(net)}'
+                       f'<tspan fill="#5c6370"> {escape(pin)}</tspan></text>')
 
     # legend
     ly = height - 20

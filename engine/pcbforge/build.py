@@ -46,8 +46,8 @@ def _build_skidl(design: Design):
         n = Net(net_name)
         for node in net.nodes:
             pt = library.resolve(design.components[node.ref].type)
-            pin_no = library.pin_number(pt, node.pin)
-            n += parts[node.ref][pin_no]
+            for pin_no in library.pin_numbers(pt, node.pin):
+                n += parts[node.ref][pin_no]
 
     return skidl, parts
 

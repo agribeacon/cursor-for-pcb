@@ -57,9 +57,36 @@ def usb_3v3_regulator() -> Design:
     return d
 
 
+def power_led_board() -> Design:
+    """A realistic, fully-autoroutable board: 2-pin 5V input -> AMS1117-3.3 ->
+    3V3 rail with bulk + HF decoupling, two indicator LEDs, a button, and a
+    4-pin breakout header. No fine-pitch parts, so the autorouter clears DRC."""
+    d = Design(name="power_led_board",
+               notes="5V header -> 3.3V LDO, 2 LEDs, button, 3V3 breakout.")
+    d.add_component("header_1x2", "J1")
+    d.add_component("regulator_3v3", "U1", "AMS1117-3.3")
+    d.add_component("capacitor_polarized", "C1", "10uF")
+    d.add_component("capacitor_polarized", "C2", "22uF")
+    d.add_component("capacitor", "C3", "100nF")
+    d.add_component("resistor", "R1", "1k")
+    d.add_component("led", "D1", "GRN")
+    d.add_component("resistor", "R2", "1k")
+    d.add_component("led", "D2", "RED")
+    d.add_component("button", "SW1")
+    d.add_component("header_1x4", "J2")
+    d.connect("VIN", "J1.1", "U1.vin", "C1.+")
+    d.connect("GND", "J1.2", "U1.gnd", "C1.-", "C2.-", "C3.2",
+              "D1.k", "D2.k", "SW1.2", "J2.4")
+    d.connect("3V3", "U1.vout", "C2.+", "C3.1", "R1.1", "R2.1", "SW1.1", "J2.1")
+    d.connect("LED1", "R1.2", "D1.a")
+    d.connect("LED2", "R2.2", "D2.a")
+    return d
+
+
 EXAMPLES: dict[str, Callable[[], Design]] = {
     "led_resistor": led_resistor,
     "voltage_divider": voltage_divider,
+    "power_led_board": power_led_board,
     "usb_3v3": usb_3v3_regulator,
 }
 
