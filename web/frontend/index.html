@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>cursor-for-pcb</title>
+<style>
+  :root{
+    --bg:#15171c; --panel:#1e2127; --panel2:#23272e; --border:#2f343d;
+    --text:#e5e9f0; --muted:#7d8590; --accent:#61afef; --green:#98c379;
+    --red:#e06c75; --yellow:#e5c07b; --chip:#282c34;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+    font-family:ui-sans-serif,-apple-system,Segoe UI,Roboto,sans-serif;font-size:14px}
+  #app{display:grid;grid-template-rows:48px 1fr;height:100vh}
+  header{display:flex;align-items:center;gap:12px;padding:0 14px;
+    background:var(--panel);border-bottom:1px solid var(--border)}
+  .logo{font-weight:700;letter-spacing:.3px}
+  .logo b{color:var(--accent)}
+  .name{color:var(--muted);font-size:13px}
+  header .spacer{flex:1}
+  .btn{background:var(--accent);color:#0b1220;border:0;border-radius:6px;
+    padding:7px 14px;font-weight:600;cursor:pointer}
+  .btn:hover{filter:brightness(1.08)}
+  .btn.ghost{background:var(--chip);color:var(--text);border:1px solid var(--border)}
+  main{display:grid;grid-template-columns:360px 1fr 240px;min-height:0}
+  /* chat */
+  .chat{display:flex;flex-direction:column;background:var(--panel);
+    border-right:1px solid var(--border);min-height:0}
+  .messages{flex:1;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:10px}
+  .msg{padding:9px 12px;border-radius:10px;max-width:92%;line-height:1.45;white-space:pre-wrap}
+  .msg.user{align-self:flex-end;background:var(--accent);color:#0b1220}
+  .msg.bot{align-self:flex-start;background:var(--chip);border:1px solid var(--border)}
+  .msg.bot code{background:#0d1117;padding:1px 5px;border-radius:4px;color:var(--yellow);font-size:12px}
+  .msg.bot strong{color:var(--green)}
+  .composer{display:flex;gap:8px;padding:12px;border-top:1px solid var(--border)}
+  .composer input{flex:1;background:#0d1117;border:1px solid var(--border);
+    color:var(--text);border-radius:8px;padding:10px 12px;outline:none}
+  .composer input:focus{border-color:var(--accent)}
+  .hint{padding:0 14px 10px;color:var(--muted);font-size:12px}
+  .hint span{color:var(--accent);cursor:pointer;margin-right:8px}
+  .hint span:hover{text-decoration:underline}
+  /* canvas */
+  .canvas{display:flex;flex-direction:column;min-width:0;background:var(--bg)}
+  .tabs{display:flex;gap:4px;padding:8px 10px;border-bottom:1px solid var(--border);
+    background:var(--panel)}
+  .tab{padding:6px 14px;border-radius:6px;color:var(--muted);cursor:pointer;font-weight:600}
+  .tab.active{background:var(--chip);color:var(--text)}
+  .view{flex:1;overflow:auto;display:flex;align-items:center;justify-content:center;padding:18px}
+  .view svg{max-width:100%;height:auto;background:#fff;border-radius:8px}
+  #schematic-view svg{background:#1e2127}
+  .empty{color:var(--muted);text-align:center;line-height:1.6}
+  .status{display:flex;gap:18px;padding:8px 14px;border-top:1px solid var(--border);
+    background:var(--panel);font-size:12px;color:var(--muted)}
+  .badge{display:inline-flex;align-items:center;gap:6px}
+  .dot{width:8px;height:8px;border-radius:50%}
+  .ok{background:var(--green)} .warn{background:var(--yellow)} .bad{background:var(--red)}
+  /* sidebar */
+  .side{background:var(--panel);border-left:1px solid var(--border);overflow:auto;padding:12px}
+  .side h3{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:6px 0 10px}
+  .obj{display:flex;justify-content:space-between;padding:8px 10px;background:var(--chip);
+    border:1px solid var(--border);border-radius:8px;margin-bottom:6px}
+  .obj .ref{font-weight:700;color:var(--accent)}
+  .obj .val{color:var(--green)}
+  .obj .ty{color:var(--muted);font-size:11px}
+  .net{padding:6px 10px;border-radius:6px;background:var(--chip);margin-bottom:5px;font-size:12px}
+  .net b{color:var(--yellow)}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="logo"><b>cursor</b>-for-pcb</div>
+    <div class="name" id="design-name">untitled</div>
+    <div class="spacer"></div>
+    <button class="btn ghost" id="export-btn">Export Gerbers</button>
+    <button class="btn" id="build-btn">⚡ Build</button>
+  </header>
+  <main>
+    <section class="chat">
+      <div class="messages" id="messages"></div>
+      <div class="hint">
+        <span data-q="load usb">load usb</span>
+        <span data-q="load led">load led</span>
+        <span data-q="add resistor 330">add resistor</span>
+        <span data-q="help">help</span>
+      </div>
+      <div class="composer">
+        <input id="input" placeholder="Describe your board…  e.g. load usb, then build" autocomplete="off"/>
+        <button class="btn" id="send-btn">Send</button>
+      </div>
+    </section>
+
+    <section class="canvas">
+      <div class="tabs">
+        <div class="tab active" data-tab="schematic">Schematic</div>
+        <div class="tab" data-tab="pcb">PCB</div>
+      </div>
+      <div class="view" id="schematic-view">
+        <div class="empty">No schematic yet.<br/>Try <b>load usb</b> in the chat.</div>
+      </div>
+      <div class="view" id="pcb-view" style="display:none">
+        <div class="empty">No board yet.<br/>Type <b>build</b> to generate the PCB.</div>
+      </div>
+      <div class="status" id="status">
+        <span class="badge"><span class="dot warn"></span><span id="erc">ERC —</span></span>
+        <span class="badge"><span class="dot warn"></span><span id="drc">DRC —</span></span>
+        <span class="badge" id="counts">0 parts · 0 nets</span>
+      </div>
+    </section>
+
+    <aside class="side">
+      <h3>Components</h3>
+      <div id="objects"></div>
+      <h3 style="margin-top:18px">Nets</h3>
+      <div id="nets"></div>
+    </aside>
+  </main>
+</div>
+
+<script>
+const $ = (s)=>document.querySelector(s);
+const messages = $("#messages");
+
+function md(t){
+  return t.replace(/&/g,"&amp;").replace(/</g,"&lt;")
+    .replace(/\*\*(.+?)\*\*/g,"<strong>$1</strong>")
+    .replace(/`([^`]+)`/g,"<code>$1</code>");
+}
+function addMsg(text, who){
+  const d=document.createElement("div");
+  d.className="msg "+who; d.innerHTML=who==="bot"?md(text):text;
+  messages.appendChild(d); messages.scrollTop=messages.scrollHeight;
+}
+
+function setTab(name){
+  document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("active",t.dataset.tab===name));
+  $("#schematic-view").style.display = name==="schematic"?"flex":"none";
+  $("#pcb-view").style.display = name==="pcb"?"flex":"none";
+}
+document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>setTab(t.dataset.tab));
+
+function render(state){
+  const d=state.design;
+  $("#design-name").textContent=d.name;
+  // schematic
+  $("#schematic-view").innerHTML = state.schematic_svg
+    || '<div class="empty">No schematic yet.</div>';
+  // pcb
+  $("#pcb-view").innerHTML = state.pcb_svg
+    || '<div class="empty">No board yet.<br/>Type <b>build</b> to generate the PCB.</div>';
+  // objects
+  $("#objects").innerHTML = d.components.map(c=>
+    `<div class="obj"><div><div class="ref">${c.ref}</div>
+     <div class="ty">${c.type}</div></div><div class="val">${c.value||""}</div></div>`).join("")
+    || '<div class="empty" style="font-size:12px">no parts</div>';
+  // nets
+  $("#nets").innerHTML = d.nets.map(n=>
+    `<div class="net"><b>${n.name}</b> · ${n.nodes.map(x=>x.ref+"."+x.pin).join(", ")}</div>`).join("")
+    || '<div class="empty" style="font-size:12px">no nets</div>';
+  // counts
+  $("#counts").textContent = `${d.components.length} parts · ${d.nets.length} nets`;
+  // build badges
+  const b=state.build;
+  const ercDot=$("#status .badge:nth-child(1) .dot"), drcDot=$("#status .badge:nth-child(2) .dot");
+  if(b){
+    $("#erc").textContent=`ERC ${b.erc_errors} err · ${b.erc_warnings} warn`;
+    ercDot.className="dot "+(b.erc_errors?"bad":"ok");
+    $("#drc").textContent=`DRC ${b.drc_violations} viol · ${b.drc_unconnected} unconn`;
+    drcDot.className="dot "+(b.drc_violations?"warn":"ok");
+    if(state.pcb_svg) setTab("pcb");
+  }else{
+    $("#erc").textContent="ERC —"; $("#drc").textContent="DRC —";
+    ercDot.className="dot warn"; drcDot.className="dot warn";
+  }
+}
+
+async function send(text){
+  addMsg(text,"user");
+  const r=await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({message:text})});
+  const data=await r.json();
+  addMsg(data.reply,"bot");
+  render(data.state);
+}
+async function build(){
+  addMsg("Building…","user");
+  const r=await fetch("/api/build",{method:"POST"});
+  const data=await r.json();
+  const b=data.state.build;
+  addMsg(b && b.ok ? `✅ Built **${b.name}** — ERC ${b.erc_errors} errors, DRC ${b.drc_violations} violations.`
+    : `⚠️ Build issues: ${(b&&b.errors||[]).join("; ")||"see status"}.`,"bot");
+  render(data.state);
+}
+
+$("#send-btn").onclick=()=>{const v=$("#input").value.trim(); if(v){$("#input").value="";send(v);}};
+$("#input").addEventListener("keydown",e=>{if(e.key==="Enter")$("#send-btn").click();});
+$("#build-btn").onclick=build;
+$("#export-btn").onclick=()=>send("export gerbers");
+document.querySelectorAll(".hint span").forEach(s=>s.onclick=()=>send(s.dataset.q));
+
+addMsg("Hi! I'm your PCB copilot. Tell me what to build — try **load usb**, then **build**. Type **help** for commands.","bot");
+fetch("/api/state").then(r=>r.json()).then(render);
+</script>
+</body>
+</html>
