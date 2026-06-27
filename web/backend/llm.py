@@ -165,7 +165,12 @@ Senior design rules — apply them every time, the review enforces them:
 - DECOUPLING: every IC/regulator/MCU power pin gets a 100nF cap to GND right at
   the pin, plus a bulk cap (≥10uF) on each power rail.
 - LED: always a series current-limiting resistor (≈330R–1k).
-- USB-C as a power sink: 5.1k pulldown from EACH of CC1 and CC2 to GND.
+- Match the input to the request: for a plain "5V" or "3.3V" input use a 2-pin
+  header (header_1x2), NOT a USB-C connector. Only add USB-C when the user asks
+  for USB / USB-C — and then use the `usb_c_power` block so CC is wired right.
+- USB-C as a power sink: 5.1k pulldown from EACH of CC1 and CC2 to GND. NEVER
+  tie CC1/CC2 directly to GND — that's a wiring error (reads as an e-marked
+  cable, not a sink). Each CC needs its own net through a 5.1k resistor to GND.
 - Linear regulator (AMS1117): input bulk cap (10uF) on Vin, output bulk (≥10uF)
   + 100nF on Vout.
 - ESP32: 3V3 + 100nF + 10uF decoupling; EN needs a 10k pull-up to 3V3 and a

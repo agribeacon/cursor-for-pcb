@@ -160,13 +160,29 @@ def review(design: Design, build_result: dict | None = None) -> Review:
             continue
         for cc in ("cc1", "cc2"):
             net = pin_net.get((ref, cc))
-            ok = bool(net) and any(
+            rv.max_score += 1
+            if net and _is_gnd(net):
+                # a direct CC→GND connection is a real wiring error: a USB-C
+                # source reads it as Ra (e-marked cable), not a sink.
+                add(Finding("error", f"CC:{ref}.{cc}",
+                            f"{ref} {cc.upper()} is shorted directly to GND — "
+                            f"it needs a 5.1k pull-down resistor to GND, not a "
+                            f"direct connection"))
+                continue
+            # the CC pin must sit on its own net, with a resistor from that net
+            # to GND (the 5.1k sink advertisement).
+            ok = bool(net) and not _is_gnd(net) and any(
                 c.type == "resistor" and net in comp_nets.get(r, set())
                 and any(_is_gnd(x) for x in comp_nets.get(r, set()))
                 for r, c in design.components.items())
-            check(ok, 1, f"CC:{ref}.{cc}",
-                  f"{ref} {cc.upper()} has a 5.1k pulldown",
-                  f"{ref} {cc.upper()} missing 5.1k pulldown to GND (USB-C sink)")
+            if ok:
+                rv.score += 1
+                add(Finding("ok", f"CC:{ref}.{cc}",
+                            f"{ref} {cc.upper()} has a 5.1k pulldown"))
+            else:
+                add(Finding("error", f"CC:{ref}.{cc}",
+                            f"{ref} {cc.upper()} missing 5.1k pulldown to GND "
+                            f"(USB-C sink)"))
 
     # ---- MCU strap pins (ESP32) ----------------------------------------
     for ref, comp in design.components.items():
