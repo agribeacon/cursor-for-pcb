@@ -198,6 +198,14 @@ def review(design: Design, build_result: dict | None = None) -> Review:
                   f"{ref} {pin.upper()} is pulled",
                   f"{ref} {what} missing (floating strap pin)", severity="warn")
 
+    # ---- electrical sanity (values / physics, not just topology) -------
+    from . import electrical
+    for f in electrical.check(design):
+        rv.max_score += 1
+        if f.severity == "ok":
+            rv.score += 1
+        add(Finding(f.severity, f.code, f.message))
+
     # ---- build-level verdicts ------------------------------------------
     if build_result:
         b = build_result
