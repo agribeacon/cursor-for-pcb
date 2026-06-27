@@ -116,9 +116,17 @@ def review(design: Design, build_result: dict | None = None,
           "a ground net exists", "no ground net found")
 
     # ---- power rails: bulk decoupling ----------------------------------
-    rails = [n for n in design.nets if _is_power(n)]
-    for rail in rails:
-        # bulk cap (polarized or any cap) from rail to GND
+    # Only rails that actually need bulk: those feeding an IC/MCU, and the input
+    # and output of a regulator (LDOs need an output cap for stability). A rail
+    # whose only load is an LED + resistor doesn't need a bulk cap.
+    need_bulk: set[str] = set()
+    for ref, comp in design.components.items():
+        nets = {n for n in comp_nets.get(ref, set()) if _is_power(n)}
+        if comp.type in IC_TYPES:
+            need_bulk |= nets
+        if comp.type in ("regulator_3v3", "reg_5v", "reg_7805"):
+            need_bulk |= nets   # both vin and vout rails
+    for rail in sorted(need_bulk):
         bulk = any(c.type == "capacitor_polarized" and rail in comp_nets.get(r, set())
                    and any(_is_gnd(x) for x in comp_nets.get(r, set()))
                    for r, c in design.components.items())
@@ -241,16 +249,17 @@ def review(design: Design, build_result: dict | None = None,
               "board is autorouted", "board is not routed", severity="warn")
 
     # ---- grade ----------------------------------------------------------
-    # A = no electrical errors AND no warnings (copper/decoupling/etc.).
-    # Info-only findings (e.g. "no ground pour" on a small board) don't block A.
+    # Driven by electrical errors + warnings (info findings never lower it):
+    #   A = clean (0 errors, 0 warnings), B = ≤2 warnings, C = ≤5, else D;
+    #   any error caps at C (F if the board is mostly broken).
     pct = (rv.score / rv.max_score * 100) if rv.max_score else 0
     if rv.errors:
-        rv.grade = "F" if pct < 60 else "C"
+        rv.grade = "F" if pct < 50 else "C"
     elif rv.warnings == 0:
         rv.grade = "A"
-    elif rv.warnings <= 2 and pct >= 85:
+    elif rv.warnings <= 2:
         rv.grade = "B"
-    elif pct >= 70:
+    elif rv.warnings <= 5:
         rv.grade = "C"
     else:
         rv.grade = "D"

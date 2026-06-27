@@ -23,10 +23,12 @@ from . import electrical
 from .model import Design
 
 # nominal input-rail voltages (what a bench supply / USB would provide)
-INPUT_V = {"5V": 5.0, "+5V": 5.0, "VBUS": 5.0, "VIN": 5.0, "12V": 12.0}
+INPUT_V = {"5V": 5.0, "+5V": 5.0, "VBUS": 5.0, "VIN": 5.0, "12V": 12.0,
+           "VCC": 5.0, "VDD": 5.0, "3V3": 3.3, "+3V3": 3.3}
 REG_VOUT = {"regulator_3v3": 3.3, "reg_5v": 5.0, "reg_7805": 5.0}
 GND_NAMES = {"GND", "GROUND", "AGND", "DGND", "VSS"}
 LED_MODEL = ".model DLED D(IS=1e-20 N=1.9 RS=2)"   # ~2V red/green indicator
+LED_VF = 2.0   # nominal LED forward drop (V) — below this it isn't being driven
 
 
 def has_ngspice() -> bool:
@@ -75,20 +77,17 @@ def build_deck(design: Design) -> tuple[str, dict]:
         return pin_net.get((ref, pin))
 
     lines = ["* cursor-for-pcb auto-generated", LED_MODEL]
-    powered_rails = set()
+    sourced = set()    # rails already driven by a regulator output
     leds = []          # (ref, anode_net, cathode_net)
     resistors = []     # (ref, netA, netB, ohms)
 
-    # regulators → ideal source on their output rail; mark input rail powered
+    # regulators → ideal source on their output rail
     for ref, comp in design.components.items():
         if comp.type in REG_VOUT:
             vout = net_of(ref, "vout") or net_of(ref, "2")
-            vin = net_of(ref, "vin") or net_of(ref, "3")
             if vout and not _is_gnd(vout):
                 lines.append(f"V{ref}_reg {nodes[vout]} 0 DC {REG_VOUT[comp.type]}")
-                powered_rails.add(vout)
-            if vin:
-                powered_rails.add(vin)
+                sourced.add(vout)
 
     # passive / active elements
     for ref, comp in design.components.items():
@@ -113,18 +112,29 @@ def build_deck(design: Design) -> tuple[str, dict]:
                 lines.append(f"D{ref} {nodes[a]} {nodes[k]} DLED")
                 leds.append((ref, a, k))
 
-    # input source on the primary input rail (5V/VBUS/VIN with most pins)
-    input_rail = None
-    cand = [n for n in design.nets if n.upper() in INPUT_V]
-    if cand:
-        input_rail = max(cand, key=lambda n: len(comp_nets and
-                         [1 for c in comp_nets.values() if n in c]))
-        lines.append(f"VIN_SRC {nodes[input_rail]} 0 DC {INPUT_V[input_rail.upper()]}")
+    # power comes IN through a connector (header / USB / terminal). Each such
+    # non-ground rail that a regulator isn't already driving gets a DC source.
+    def is_connector(t):
+        return t.startswith("header") or "usb" in t or t in (
+            "screw_terminal", "barrel_jack")
 
-    lines += [".control", "op",
-              "print all", ".endc", ".end"]
+    # only a power-named connector pin is an input (a header's SCL/SDA/GPIO
+    # signal pins are connectors too, but they aren't power).
+    input_rails = set()
+    for ref, comp in design.components.items():
+        if is_connector(comp.type):
+            input_rails |= {n for n in comp_nets.get(ref, set())
+                            if not _is_gnd(n) and n.upper() in INPUT_V}
+    input_rails -= sourced
+
+    for rail in sorted(input_rails):
+        v = INPUT_V.get(rail.upper(), 5.0)   # default a bare supply to 5 V
+        lines.append(f"V{re.sub(r'[^A-Za-z0-9]', '', rail)}_in {nodes[rail]} 0 DC {v}")
+
+    lines += [".control", "op", "print all", ".endc", ".end"]
     meta = {"nodes": nodes, "leds": leds, "resistors": resistors,
-            "input_rail": input_rail}
+            "input_rails": sorted(input_rails), "sourced": sorted(sourced),
+            "has_source": bool(input_rails or sourced)}
     return "\n".join(lines), meta
 
 
@@ -161,8 +171,12 @@ def run(design: Design) -> dict:
         return volt.get(f"v({node})".lower(), volt.get(node.lower()))
 
     findings: list[SimFinding] = []
+    if not meta["has_source"]:
+        return {"ok": True, "voltages": {n: vn(n) for n in design.nets},
+                "findings": [SimFinding("info", "SIM",
+                    "no power input found to simulate (add a header/USB or "
+                    "regulator)")]}
     # LED currents from the simulated operating point (series-resistor drop)
-    rbyref = {r[0]: r for r in meta["resistors"]}
     for ref, a, k in meta["leds"]:
         # the resistor in series shares the LED anode net
         sr = next((r for r in meta["resistors"] if a in (r[1], r[2])), None)
@@ -172,7 +186,13 @@ def run(design: Design) -> dict:
         if va is None or vb is None:
             continue
         i_ma = abs(va - vb) / sr[3] * 1000
-        if i_ma > 25:
+        supply_v = max(va, vb)
+        if supply_v < LED_VF:
+            # the LED isn't fed from an always-on rail — it's GPIO/firmware
+            # driven, so its DC-off current says nothing about correctness.
+            findings.append(SimFinding("info", f"SIM_LED:{ref}",
+                f"{ref}: GPIO/firmware-driven LED (current depends on firmware)"))
+        elif i_ma > 25:
             findings.append(SimFinding("error", f"SIM_LED:{ref}",
                 f"{ref}: simulated LED current {i_ma:.0f} mA exceeds safe ~20 mA — will burn"))
         elif i_ma < 0.5:
@@ -182,15 +202,11 @@ def run(design: Design) -> dict:
             findings.append(SimFinding("ok", f"SIM_LED:{ref}",
                 f"{ref}: simulated LED current {i_ma:.0f} mA ✓"))
 
-    # input current → short detection
-    if meta["input_rail"]:
-        iin = None
-        for k2, v in volt.items():
-            if k2.startswith("vin_src") or k2 == "i(vin_src)":
-                iin = abs(v)
-        if iin is not None and iin > 0.5:
-            findings.append(SimFinding("error", "SIM_SHORT",
-                f"input draws {iin*1000:.0f} mA — likely a rail-to-GND short"))
+    # total input current → rail-to-GND short detection
+    iin = sum(abs(v) for k2, v in volt.items() if "_in" in k2 and "branch" in k2)
+    if iin > 0.5:
+        findings.append(SimFinding("error", "SIM_SHORT",
+            f"input draws {iin*1000:.0f} mA — likely a rail-to-GND short"))
 
     return {"ok": True, "voltages": {n: vn(n) for n in design.nets},
             "findings": findings}
