@@ -115,6 +115,21 @@ def review(design: Design, build_result: dict | None = None,
     check(has_gnd, 2, "GND",
           "a ground net exists", "no ground net found")
 
+    # a redundant net: a single-pin net whose lone pin ALSO sits on another net.
+    # That pin bridges the two, so the single-pin one is a stray label to merge.
+    # (A single-pin net whose pin is on no other net is a legit input/test point,
+    # not flagged here.)
+    pin_nets: dict = {}
+    for name, net in design.nets.items():
+        for nd in net.nodes:
+            pin_nets.setdefault((nd.ref, nd.pin), []).append(name)
+    redundant = sorted({n for n, net in design.nets.items() if len(net.nodes) == 1
+                        and len(pin_nets[(net.nodes[0].ref, net.nodes[0].pin)]) > 1})
+    check(not redundant, 1, "DANGLING",
+          "no redundant net labels",
+          f"redundant net label(s): {', '.join(redundant)} — merge with the net "
+          f"sharing that pin", severity="warn")
+
     # ---- power rails: bulk decoupling ----------------------------------
     # Only rails that actually need bulk: those feeding an IC/MCU, and the input
     # and output of a regulator (LDOs need an output cap for stability). A rail
