@@ -180,13 +180,19 @@ function render(state){
   }
 }
 
+let sending=false;
 async function send(text){
+  if(sending) return;          // guard against double-submit
+  sending=true;
   addMsg(text,"user");
-  const r=await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({message:text})});
-  const data=await r.json();
-  addMsg(data.reply,"bot");
-  render(data.state);
+  try{
+    const r=await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({message:text})});
+    const data=await r.json();
+    addMsg(data.reply,"bot");
+    render(data.state);
+  }catch(e){ addMsg("⚠️ "+e,"bot"); }
+  finally{ sending=false; }
 }
 async function build(){
   addMsg("Building…","user");
@@ -199,7 +205,11 @@ async function build(){
 }
 
 $("#send-btn").onclick=()=>{const v=$("#input").value.trim(); if(v){$("#input").value="";send(v);}};
-$("#input").addEventListener("keydown",e=>{if(e.key==="Enter")$("#send-btn").click();});
+// Ignore Enter while the IME is composing (Vietnamese/CJK input fires a
+// second Enter keydown on commit, which otherwise sends the message twice).
+$("#input").addEventListener("keydown",e=>{
+  if(e.key==="Enter" && !e.isComposing && e.keyCode!==229){e.preventDefault();$("#send-btn").click();}
+});
 $("#build-btn").onclick=build;
 $("#export-btn").onclick=()=>send("export gerbers");
 document.querySelectorAll(".hint span").forEach(s=>s.onclick=()=>send(s.dataset.q));
