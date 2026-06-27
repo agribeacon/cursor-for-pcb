@@ -29,11 +29,24 @@
   .chat{display:flex;flex-direction:column;background:var(--panel);
     border-right:1px solid var(--border);min-height:0}
   .messages{flex:1;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:10px}
-  .msg{padding:9px 12px;border-radius:10px;max-width:92%;line-height:1.45;white-space:pre-wrap}
+  .msg{padding:9px 12px;border-radius:10px;max-width:92%;line-height:1.45;white-space:pre-wrap;position:relative}
+  .msg .copy{position:absolute;top:4px;right:4px;background:rgba(0,0,0,.25);
+    border:0;color:var(--muted);font-size:11px;border-radius:5px;padding:2px 6px;
+    cursor:pointer;opacity:0;transition:opacity .15s}
+  .msg:hover .copy{opacity:1}
+  .msg .copy:hover{color:var(--text)}
   .msg.user{align-self:flex-end;background:var(--accent);color:#0b1220}
   .msg.bot{align-self:flex-start;background:var(--chip);border:1px solid var(--border)}
   .msg.bot code{background:#0d1117;padding:1px 5px;border-radius:4px;color:var(--yellow);font-size:12px}
   .msg.bot strong{color:var(--green)}
+  .typing{display:flex;gap:5px;align-items:center}
+  .typing .dot{width:7px;height:7px;border-radius:50%;background:var(--muted);
+    animation:blink 1.2s infinite both}
+  .typing .dot:nth-child(2){animation-delay:.2s}
+  .typing .dot:nth-child(3){animation-delay:.4s}
+  @keyframes blink{0%,80%,100%{opacity:.25}40%{opacity:1}}
+  .composer.busy{opacity:.5;pointer-events:none}
+  .btn:disabled{opacity:.5;cursor:default}
   .composer{display:flex;gap:8px;padding:12px;border-top:1px solid var(--border)}
   .composer input{flex:1;background:#0d1117;border:1px solid var(--border);
     color:var(--text);border-radius:8px;padding:10px 12px;outline:none}
@@ -74,6 +87,7 @@
     <div class="logo"><b>cursor</b>-for-pcb</div>
     <div class="name" id="design-name">untitled</div>
     <div class="spacer"></div>
+    <button class="btn ghost" id="new-btn">＋ New</button>
     <button class="btn ghost" id="export-btn">Export Gerbers</button>
     <button class="btn" id="build-btn">⚡ Build</button>
   </header>
@@ -131,9 +145,23 @@ function md(t){
 }
 function addMsg(text, who){
   const d=document.createElement("div");
-  d.className="msg "+who; d.innerHTML=who==="bot"?md(text):text;
+  d.className="msg "+who;
+  d.innerHTML=who==="bot"?md(text):md(String(text).replace(/</g,"&lt;"));
+  const cp=document.createElement("button");
+  cp.className="copy"; cp.textContent="Copy";
+  cp.onclick=()=>{navigator.clipboard.writeText(text);
+    cp.textContent="Copied"; setTimeout(()=>cp.textContent="Copy",1200);};
+  d.appendChild(cp);
+  messages.appendChild(d); messages.scrollTop=messages.scrollHeight;
+  return d;
+}
+function showTyping(){
+  const d=document.createElement("div");
+  d.className="msg bot"; d.id="typing";
+  d.innerHTML='<div class="typing"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>';
   messages.appendChild(d); messages.scrollTop=messages.scrollHeight;
 }
+function hideTyping(){const t=$("#typing"); if(t) t.remove();}
 
 function setTab(name){
   document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("active",t.dataset.tab===name));
@@ -181,27 +209,48 @@ function render(state){
 }
 
 let sending=false;
+function setBusy(b){
+  sending=b;
+  $(".composer").classList.toggle("busy",b);
+  $("#send-btn").disabled=b; $("#build-btn").disabled=b;
+}
 async function send(text){
   if(sending) return;          // guard against double-submit
-  sending=true;
+  setBusy(true);
   addMsg(text,"user");
+  showTyping();
   try{
     const r=await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({message:text})});
     const data=await r.json();
+    hideTyping();
     addMsg(data.reply,"bot");
     render(data.state);
-  }catch(e){ addMsg("⚠️ "+e,"bot"); }
-  finally{ sending=false; }
+  }catch(e){ hideTyping(); addMsg("⚠️ "+e,"bot"); }
+  finally{ setBusy(false); $("#input").focus(); }
 }
 async function build(){
+  if(sending) return;
+  setBusy(true);
   addMsg("Building…","user");
-  const r=await fetch("/api/build",{method:"POST"});
-  const data=await r.json();
-  const b=data.state.build;
-  addMsg(b && b.ok ? `✅ Built **${b.name}** — ERC ${b.erc_errors} errors, DRC ${b.drc_violations} violations.`
-    : `⚠️ Build issues: ${(b&&b.errors||[]).join("; ")||"see status"}.`,"bot");
-  render(data.state);
+  showTyping();
+  try{
+    const r=await fetch("/api/build",{method:"POST"});
+    const data=await r.json();
+    hideTyping();
+    const b=data.state.build;
+    addMsg(b && b.ok ? `✅ Built **${b.name}** — ERC ${b.erc_errors} errors, DRC ${b.drc_violations} violations, ${b.tracks} tracks.`
+      : `⚠️ Build issues: ${(b&&b.errors||[]).join("; ")||"see status"}.`,"bot");
+    render(data.state);
+  }catch(e){ hideTyping(); addMsg("⚠️ "+e,"bot"); }
+  finally{ setBusy(false); }
+}
+async function newConversation(){
+  if(sending) return;
+  await fetch("/api/new",{method:"POST"});
+  messages.innerHTML="";
+  addMsg("New design started. What do you want to build?","bot");
+  fetch("/api/state").then(r=>r.json()).then(render);
 }
 
 $("#send-btn").onclick=()=>{const v=$("#input").value.trim(); if(v){$("#input").value="";send(v);}};
@@ -211,6 +260,7 @@ $("#input").addEventListener("keydown",e=>{
   if(e.key==="Enter" && !e.isComposing && e.keyCode!==229){e.preventDefault();$("#send-btn").click();}
 });
 $("#build-btn").onclick=build;
+$("#new-btn").onclick=newConversation;
 $("#export-btn").onclick=()=>send("export gerbers");
 document.querySelectorAll(".hint span").forEach(s=>s.onclick=()=>send(s.dataset.q));
 

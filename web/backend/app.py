@@ -92,6 +92,13 @@ async def build(request):
     return JSONResponse({"state": _snapshot(_do_build())})
 
 
+async def new_design(request):
+    _state["design"] = Design(name="untitled")
+    _state["build"] = None
+    _state["history"] = []
+    return JSONResponse({"state": _snapshot(None)})
+
+
 async def index(request):
     return FileResponse(FRONTEND / "index.html")
 
@@ -102,6 +109,7 @@ routes = [
     Route("/api/parts", parts),
     Route("/api/chat", chat, methods=["POST"]),
     Route("/api/build", build, methods=["POST"]),
+    Route("/api/new", new_design, methods=["POST"]),
 ]
 
 app = Starlette(routes=routes)
