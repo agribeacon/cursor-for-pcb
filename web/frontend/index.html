@@ -121,6 +121,7 @@
         <span class="badge"><span class="dot warn"></span><span id="erc">ERC —</span></span>
         <span class="badge"><span class="dot warn"></span><span id="drc">DRC —</span></span>
         <span class="badge"><span class="dot warn"></span><span id="route">Route —</span></span>
+        <span class="badge"><span class="dot warn"></span><span id="grade">Review —</span></span>
         <span class="badge" id="counts">0 parts · 0 nets</span>
       </div>
     </section>
@@ -193,7 +194,7 @@ function render(state){
   // build badges
   const b=state.build;
   const ercDot=$("#status .badge:nth-child(1) .dot"), drcDot=$("#status .badge:nth-child(2) .dot"),
-        rtDot=$("#status .badge:nth-child(3) .dot");
+        rtDot=$("#status .badge:nth-child(3) .dot"), gdDot=$("#status .badge:nth-child(4) .dot");
   if(b){
     $("#erc").textContent=`ERC ${b.erc_errors} err · ${b.erc_warnings} warn`;
     ercDot.className="dot "+(b.erc_errors?"bad":"ok");
@@ -201,10 +202,14 @@ function render(state){
     drcDot.className="dot "+(b.drc_unconnected?"bad":(b.drc_violations?"warn":"ok"));
     $("#route").textContent=`Route ${b.tracks||0} tracks · ${b.vias||0} vias`;
     rtDot.className="dot "+(b.unrouted?"warn":"ok");
+    const rv=b.review||{};
+    $("#grade").textContent=`Review ${rv.grade||"—"} (${rv.score||0}/${rv.max_score||0})`;
+    gdDot.className="dot "+(rv.errors?"bad":(rv.grade==="A"?"ok":"warn"));
     if(state.pcb_svg) setTab("pcb");
   }else{
     $("#erc").textContent="ERC —"; $("#drc").textContent="DRC —"; $("#route").textContent="Route —";
-    ercDot.className="dot warn"; drcDot.className="dot warn"; rtDot.className="dot warn";
+    $("#grade").textContent="Review —";
+    ercDot.className="dot warn"; drcDot.className="dot warn"; rtDot.className="dot warn"; gdDot.className="dot warn";
   }
 }
 

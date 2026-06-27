@@ -24,14 +24,26 @@ def _print_result(res) -> int:
     print(f"schematic:  {res.schematic_svg}")
     print(f"board:      {res.pcb_file}")
     print(f"pcb svg:    {res.pcb_svg}")
+    print(f"bom:        {res.bom}")
     print(f"ERC:        {res.erc_errors} errors, {res.erc_warnings} warnings")
-    print(f"DRC:        {res.drc_violations} violations, "
-          f"{res.drc_unconnected} unconnected")
+    print(f"DRC:        {res.drc_violations} violations "
+          f"({res.drc_copper} copper), {res.drc_unconnected} unconnected")
+    print(f"route:      {res.tracks} tracks, {res.vias} vias"
+          + (f", GND pour" if res.poured else ""))
+    rv = res.review or {}
+    if rv:
+        print(f"\nDESIGN REVIEW: grade {rv['grade']} "
+              f"({rv['score']}/{rv['max_score']}) — "
+              f"{rv['errors']} errors, {rv['warnings']} warnings")
+        for f in rv.get("findings", []):
+            if f["severity"] in ("error", "warn"):
+                mark = "✗" if f["severity"] == "error" else "⚠"
+                print(f"  {mark} {f['message']}")
     for w in res.warnings:
         print(f"  warn: {w}")
     for e in res.errors:
         print(f"  ERROR: {e}")
-    print("OK" if res.ok else "FAILED")
+    print("\n" + ("OK" if res.ok else "FAILED"))
     return 0 if res.ok else 1
 
 

@@ -128,6 +128,24 @@ def build(gerbers: bool = False) -> dict:
 
 
 @mcp.tool()
+def review_design() -> dict:
+    """Run a senior-engineer design review of the current design: checks IC
+    decoupling, power-rail bulk caps, LED series resistors, USB-C CC pulldowns,
+    MCU strap pull-ups, unconnected parts, plus (after a build) ERC, unconnected
+    ratsnest, copper DRC and ground pour. Returns a graded report."""
+    from pcbforge import review as _review
+    build = build_all(_design, _out_dir(_design)).to_dict()
+    return _review.review(_design, build).to_dict()
+
+
+@mcp.tool()
+def export_bom() -> str:
+    """Return the bill of materials as CSV (parts grouped with quantities)."""
+    from pcbforge import bom as _bom
+    return _bom.bom_csv(_design)
+
+
+@mcp.tool()
 def get_schematic_svg() -> str:
     """Return the schematic SVG markup for the current design (rebuilds it)."""
     from pcbforge import schematic_svg

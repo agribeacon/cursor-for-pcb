@@ -128,11 +128,19 @@ _reg(PartType("opamp", "Amplifier_Operational", "LM358",
                "vee": "4", "v-": "4", "gnd": "4", "vcc": "8", "v+": "8"},
               "Dual op-amp (channel A)"), "lm358")
 
-# ESP32-WROOM-32 module. GND is multi-pad; pin 2 = 3V3, pin 3 = EN.
+# ESP32-WROOM-32 module. GND multi-pad; pin 2 = 3V3, pin 3 = EN, plus all GPIOs.
+_ESP32_PINS = {
+    "gnd": ["1", "15", "38", "39"], "3v3": "2", "vcc": "2",
+    "en": "3", "reset": "3", "boot": "25",
+    "io0": "25", "io2": "24", "io4": "26", "io5": "29",
+    "io12": "14", "io13": "16", "io14": "13", "io15": "23",
+    "io16": "27", "io17": "28", "io18": "30", "io19": "31",
+    "io21": "33", "io22": "36", "io23": "37",
+    "io25": "10", "io26": "11", "io27": "12",
+    "io32": "8", "io33": "9", "io34": "6", "io35": "7",
+}
 _reg(PartType("esp32", "RF_Module", "ESP32-WROOM-32", "RF_Module:ESP32-WROOM-32",
-              {"gnd": ["1", "15", "38", "39"], "3v3": "2", "vcc": "2",
-               "en": "3", "reset": "3", "io0": "25", "boot": "25", "io2": "24"},
-              "ESP32-WROOM-32 Wi-Fi/BT module"), "wroom", "esp")
+              _ESP32_PINS, "ESP32-WROOM-32 Wi-Fi/BT module"), "wroom", "esp")
 
 _reg(PartType("reg_5v", "Regulator_Linear", "AMS1117-5.0",
               "Package_TO_SOT_SMD:SOT-223-3_TabPin2",

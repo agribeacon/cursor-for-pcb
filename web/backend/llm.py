@@ -106,21 +106,39 @@ TOOLS = [
             "properties": {"gerbers": {"type": "boolean"}},
         },
     },
+    {
+        "name": "review_design",
+        "description": "Run a senior design review (decoupling, bulk caps, LED "
+                       "resistors, USB-C CC pulldowns, MCU straps, ERC/DRC). "
+                       "Returns a graded report — fix any errors it lists.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
 ]
 
-SYSTEM = """You are the design copilot inside cursor-for-pcb, an AI-native PCB tool.
-You turn a user's request into a real circuit by calling tools: add components,
-wire nets, then build. Work in small steps and finish by calling `build` so the
-user sees the schematic, PCB and DRC result.
+SYSTEM = """You are a senior hardware engineer working inside cursor-for-pcb, an
+AI-native PCB tool. Turn the user's request into a complete, manufacturable
+circuit by calling tools: add components, wire nets, then `build`. After
+building, call `review_design` and fix any errors it reports before finishing.
 
-Rules:
-- Pins are 'REF.PIN'. Passives use numbers (R1.1, R1.2, C1.+, C1.-). ICs/connectors
-  use friendly names (U1.vin, U1.vout, U1.gnd, J1.vbus, J1.gnd, D1.a, D1.k).
-- For a USB-C power input, add 'usb_c' and a 'regulator_3v3', decouple with caps,
-  and remember USB-C CC1/CC2 need 5.1k pulldowns to GND for a sink device.
-- Always tie a common GND net. Add a current-limiting resistor in series with any LED.
-- If unsure which parts/pins exist, call list_part_types first.
-- Keep replies short; let the tools and the rendered board do the talking."""
+Pin syntax: 'REF.PIN'. Passives use numbers (R1.1, R1.2, C1.+, C1.-). ICs and
+connectors use friendly names (U1.vin, U1.vout, U1.gnd, U1.3v3, U1.en, U1.io0,
+J1.vbus, J1.gnd, J1.cc1, J1.cc2, D1.a, D1.k).
+
+Senior design rules — apply them every time, the review enforces them:
+- One common GND net. Tie every ground pin to it.
+- DECOUPLING: every IC/regulator/MCU power pin gets a 100nF cap to GND right at
+  the pin, plus a bulk cap (≥10uF) on each power rail.
+- LED: always a series current-limiting resistor (≈330R–1k).
+- USB-C as a power sink: 5.1k pulldown from EACH of CC1 and CC2 to GND.
+- Linear regulator (AMS1117): input bulk cap (10uF) on Vin, output bulk (≥10uF)
+  + 100nF on Vout.
+- ESP32: 3V3 + 100nF + 10uF decoupling; EN needs a 10k pull-up to 3V3 and a
+  100nF to GND (reset RC); IO0 needs a 10k pull-up to 3V3 (boot strap). Add a
+  reset button (EN–GND) and boot button (IO0–GND) when making a dev board.
+- Never leave a power input, reset, or enable pin floating.
+
+If unsure which parts/pins exist, call list_part_types. Keep replies short; let
+the rendered board, the review grade, and the BOM do the talking."""
 
 
 # ---- tool dispatch (pure; unit-testable without the LLM) --------------------
@@ -156,9 +174,20 @@ def execute_tool(state: dict, name: str, args: dict) -> tuple[str, bool]:
             res = build_all(d, state["out_dir"](d), gerbers=args.get("gerbers", False))
             state["build"] = res.to_dict()
             did_build = True
+            rv = res.review or {}
             return (f"build ok={res.ok} ERC_errors={res.erc_errors} "
-                    f"DRC_violations={res.drc_violations} "
-                    f"unconnected={res.drc_unconnected} tracks={res.tracks}"), True
+                    f"DRC_unconnected={res.drc_unconnected} copper_DRC={res.drc_copper} "
+                    f"tracks={res.tracks} | review grade={rv.get('grade')} "
+                    f"({rv.get('errors')} errors)"), True
+        if name == "review_design":
+            from pcbforge import review as _review
+            res = build_all(d, state["out_dir"](d))
+            state["build"] = res.to_dict()
+            rv = _review.review(d, res.to_dict())
+            issues = [f["message"] for f in rv.findings
+                      if f.severity in ("error", "warn")]
+            return json.dumps({"grade": rv.grade, "score": rv.score,
+                               "max_score": rv.max_score, "issues": issues}), True
         return f"unknown tool {name}", False
     except Exception as exc:
         return f"ERROR: {exc}", did_build

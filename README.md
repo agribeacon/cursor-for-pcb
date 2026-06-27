@@ -126,34 +126,58 @@ Resistor · capacitor (ceramic & polarized) · LED · diode · push button ·
 stock KiCad symbol + footprint with friendly pin names (`U1.vin`, `D1.a`,
 `C1.+`). Adding parts is a one-line entry in `engine/pcbforge/library.py`.
 
+## Senior design review — the output gate
+
+A board that *builds* isn't necessarily a board a senior would ship. The engine
+includes a **design-review pass** (`pcbforge.review`) that grades a design
+against the checks an experienced engineer runs before fab:
+
+- every IC / regulator / MCU power pin has **local 100 nF decoupling** to GND,
+- every power rail has a **bulk capacitor**,
+- every **LED has a series resistor**,
+- **USB-C CC1/CC2** have 5.1 kΩ **sink pulldowns**,
+- an **MCU's reset/enable + boot-strap** pins are pulled, not floating,
+- nothing is unconnected, a ground net exists,
+- plus ERC = 0, no unconnected ratsnest, copper DRC, ground pour.
+
+It returns a letter grade and a findings list. The web UI shows the grade live;
+the MCP server exposes it as `review_design`; the CLI prints it after a build.
+A `bom.csv` is generated alongside every board.
+
+**Live result:** asked *"design an ESP32 dev board powered from USB-C with status
+LEDs and a reset button"*, Claude (driving the engine via tool use) produced a
+design that scores **grade A — zero electrical review errors**: USB-C with CC
+pulldowns, AMS1117-3.3 with in/out bulk + HF decoupling, ESP32 with proper
+decoupling, EN reset RC, IO0 boot strap, and current-limited LEDs.
+
 ## Status & roadmap
 
 **Working today:**
 - chat/MCP-driven capture; **LLM-in-the-loop web chat** — set `ANTHROPIC_API_KEY`
   and Claude drives the engine via tool use (offline parser fallback otherwise)
-- real KiCad netlist + ERC; **2-layer autorouting** (copper tracks + vias)
-- **GND copper pour** (filled ground plane via KiCad's `pcbnew`) — auto-applied
-  when it routes cleaner
-- **connectivity-aware placement** + courtyard-aware spacing; `build_all` tries
-  multiple placement/pour strategies and keeps the cleanest by DRC
-- **multi-pad power pins** (USB-C VBUS/GND fan out to all pads)
+- **senior design-review engine** + **BOM** export
+- real KiCad netlist + ERC; **2-layer autorouting** (A\* maze, copper + vias)
+- **GND copper pour** (filled ground plane via KiCad's `pcbnew`), auto-applied
+  when it routes cleaner; `build_all` tries multiple placement/pour strategies
+  and keeps the cleanest by DRC
+- **connectivity-aware + courtyard-aware placement**; multi-pad power pins
 - **28-part catalog** (passives, transistors, MOSFETs, diodes, crystal, ESP32,
   555, op-amp, regulators, USB-C/micro, headers, screw terminal…)
-- schematic & PCB SVG, DRC, Gerber export, 4 example circuits, web UI, 8 tests
+- 5 example circuits incl. a full **ESP32 dev board**; web UI; 12 tests
 
-Boards without fine-pitch parts (e.g. `power_led_board`, 11 parts) autoroute
-**100% connected, copper-DRC-clean, with a ground plane**. Remaining warnings
-are cosmetic silk (reference text over pads).
+**What is genuinely senior-grade:** the *electrical* design. The review enforces
+decoupling, bulk caps, strapping, protection and current limiting, and the AI
+reliably produces **grade-A, zero-error** designs with a clean ERC and a BOM.
 
-**Known limitation:** very fine-pitch connectors (USB-C at 0.5 mm pitch) still
-leave a few clearance/short warnings in the connector area — dedicated escape
-(micro-)via fanout is hard for a gridded maze router and commercial routers
-struggle here too. The board still routes fully *connected*; the warnings are
-local to the connector.
+**What is v0.1:** the *autorouter*. It fully connects every board (0 unconnected)
+and is **copper-DRC-clean on standard-pitch boards**, but the fixed grid leaves
+some clearance warnings on dense / fine-pitch layouts (ESP32 castellations,
+USB-C 0.5 mm) — areas a senior would hand-finish or hand to a commercial router.
+The schematic view is a readable net diagram, not yet a placed-symbol schematic.
 
-**Next:** fine-pitch escape-via fanout · power pours beyond GND · constraints
-from the prompt (board size, layer count) · streaming LLM chat with live board
-updates per tool call.
+**Next:** swap in a stronger router (e.g. FreeRouting) for dense boards · real
+placed-symbol schematic export · fine-pitch escape-via fanout · constraints from
+the prompt (board size, layer count).
 
 ## Tests
 

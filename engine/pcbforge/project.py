@@ -22,10 +22,13 @@ class BuildResult:
     schematic_svg: str
     pcb_file: str | None = None
     pcb_svg: str | None = None
+    bom: str | None = None
     erc_errors: int = 0
     erc_warnings: int = 0
     drc_violations: int = 0
     drc_unconnected: int = 0
+    drc_copper: int = 0
+    review: dict = field(default_factory=dict)
     tracks: int = 0
     vias: int = 0
     routed: int = 0
@@ -61,6 +64,14 @@ def build_all(design: Design, out_dir: str | Path,
     # schematic SVG never fails — write it first so the UI always has a view.
     Path(res.schematic_svg).write_text(schematic_svg.render(design))
 
+    # bill of materials (a senior deliverable)
+    try:
+        from . import bom as _bom
+        res.bom = str(out / "bom.csv")
+        Path(res.bom).write_text(_bom.bom_csv(design))
+    except Exception as exc:
+        res.warnings.append(f"BOM failed: {exc}")
+
     # netlist + ERC
     try:
         build.generate_netlist(design, res.netlist)
@@ -78,11 +89,14 @@ def build_all(design: Design, out_dir: str | Path,
         # listed first (real boards want a ground plane).
         gnd_pads = max((len(n.nodes) for name, n in design.nets.items()
                         if name.upper() in pcb.POUR_NETS), default=0)
+        n_parts = len(design.components)
         candidates = []
         if drc and gnd_pads >= 3:
             candidates.append(("pour", "insertion", True))   # ground plane
         candidates.append(("ins", "insertion", False))        # baseline
-        if drc and len(design.components) > 6:
+        # the connectivity candidate is an extra full route+DRC pass — only worth
+        # it on small/medium boards where routing is fast.
+        if drc and 6 < n_parts <= 12:
             candidates.append(("con", "connectivity", False)) # cluster nets
         best = None  # (score_tuple, rstats, drc_report, tmp_path)
         for label, order, pour in candidates:
@@ -120,10 +134,19 @@ def build_all(design: Design, out_dir: str | Path,
         render.pcb_to_svg(pcb_file, res.pcb_svg)
         if rep:
             res.drc_violations, res.drc_unconnected = rep.violations, rep.unconnected
+            res.drc_copper = _copper_violations(rep)
         if gerbers:
             render.export_gerbers(pcb_file, out / "gerbers")
     except Exception as exc:
         res.errors.append(f"PCB build failed: {exc}")
+
+    # senior design review over the design + build verdicts
+    try:
+        from . import review as _review
+        rv = _review.review(design, res.to_dict())
+        res.review = rv.to_dict()
+    except Exception as exc:
+        res.warnings.append(f"review failed: {exc}")
 
     return res
 

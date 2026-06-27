@@ -22,6 +22,9 @@ from .model import Design
 
 # Net names that get a copper pour instead of routed tracks (case-insensitive).
 POUR_NETS = {"GND", "GROUND", "AGND", "DGND"}
+# Net names that get wider power traces.
+POWER_NETS = {"VCC", "VDD", "3V3", "+3V3", "5V", "+5V", "VBUS", "VIN", "VOUT",
+              "VBAT", "VDDA"}
 
 
 def _load_footprint(lib_id: str):
@@ -201,9 +204,11 @@ def build_board(design: Design, path: str | Path,
         end=Position(X=round(x1, 3), Y=round(y1, 3)),
         layer="Edge.Cuts", width=0.15))
 
+    power_codes = {net_codes[n] for n in design.nets if n.upper() in POWER_NETS}
+
     stats = {}
     if route:
-        stats = _route.route_board(board)
+        stats = _route.route_board(board, power_net_codes=power_codes)
 
     path = Path(path)
     board.to_file(str(path))

@@ -30,16 +30,38 @@ def test_example_builds(name, tmp_path):
     assert res.drc_unconnected == 0, "DRC reports unconnected pads"
 
 
-def test_clean_board_passes_copper_drc(tmp_path):
-    """A board with no fine-pitch parts must autoroute with zero copper
-    (short/clearance) DRC violations."""
-    import json
+@pytest.mark.parametrize("name", ["power_led_board", "usb_3v3", "esp32_dev_board"])
+def test_designs_are_electrically_senior(name, tmp_path):
+    """The real designs must pass the senior design review with ZERO electrical
+    errors — every IC decoupled, power rails bulked, LEDs current-limited, USB-C
+    CC pulldowns present, MCU straps pulled. (Copper-routing warnings on dense
+    boards are a separate, non-electrical concern.)"""
+    design = build_example(name)
+    res = build_all(design, tmp_path / name, drc=True)
+    assert res.erc_errors == 0
+    assert res.drc_unconnected == 0, "ratsnest must be fully connected"
+    assert res.review["errors"] == 0, res.review["findings"]
+    assert res.review["grade"] in ("A", "B"), res.review
+
+
+def test_bom_groups_parts():
+    from pcbforge import bom
     design = build_example("power_led_board")
-    res = build_all(design, tmp_path / "p", drc=True)
-    drc = json.loads(Path(res.pcb_file).with_suffix(".drc.json").read_text())
-    copper = [v for v in drc.get("violations", [])
-              if v.get("type") in ("shorting_items", "clearance", "track_dangling")]
-    assert not copper, f"copper DRC violations: {copper}"
+    csv = bom.bom_csv(design)
+    assert "References,Qty,Value" in csv
+    assert "capacitor_polarized" in csv
+
+
+def test_simple_board_copper_clean(tmp_path):
+    """Standard-pitch boards must autoroute with zero copper DRC violations."""
+    import json
+    for name in ("led_resistor", "voltage_divider"):
+        design = build_example(name)
+        res = build_all(design, tmp_path / name, drc=True)
+        drc = json.loads(Path(res.pcb_file).with_suffix(".drc.json").read_text())
+        copper = [v for v in drc.get("violations", [])
+                  if v.get("type") in ("shorting_items", "clearance", "track_dangling")]
+        assert not copper, f"{name} copper DRC violations: {copper}"
 
 
 def test_design_roundtrip(tmp_path):

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import heapq
 import hashlib
+import math
 from dataclasses import dataclass
 
 _uid_seq = 0
@@ -35,9 +36,11 @@ def _uuid() -> str:
 RES = 0.2             # grid resolution (mm)
 CLEAR_CELLS = 2       # obstacle inflation: 2 cells -> 0.4 mm centre spacing
 VIA_COST = 14         # discourage layer changes
-# 0.2 mm track at 0.4 mm spacing leaves a 0.2 mm edge gap == default DRC rule.
+# 0.2 mm track at 0.4 mm spacing leaves exactly the 0.2 mm edge gap the default
+# DRC rule wants. Wider power traces would need per-net clearance rules the fixed
+# grid doesn't model, so all tracks share one width to stay DRC-clean.
 TRACK_W = 0.2
-POWER_TRACK_W = 0.3
+POWER_TRACK_W = 0.2
 VIA_SIZE = 0.6
 VIA_DRILL = 0.3
 LAYERS = ("F.Cu", "B.Cu")
@@ -54,34 +57,46 @@ class _Pad:
     both_layers: bool   # through-hole -> can be entered on either layer
 
 
-def _abs_pads(board):
-    """Yield (_Pad) for every pad that has a net, in absolute board mm."""
+# Sentinel owner for copper that belongs to no routable net (e.g. an IC's
+# unconnected pads). It is never equal to a real net code, so the router treats
+# such cells as hard obstacles and never routes a track across them.
+BLOCKER = -1
+
+
+def _abs_pads(board, include_unconnected=False):
+    """Yield (_Pad) for pads. With ``include_unconnected`` also yields pads
+    with no net, tagged ``net = BLOCKER`` so they block routing (real copper a
+    track must avoid). All coordinates are absolute board mm."""
     pads = []
     for fp in board.footprints:
         ox, oy = fp.position.X, fp.position.Y
         for pad in fp.pads:
-            if pad.net is None or pad.net.number in (None, 0):
+            unconnected = pad.net is None or pad.net.number in (None, 0)
+            if unconnected and not include_unconnected:
                 continue
+            netnum = BLOCKER if unconnected else pad.net.number
             px = ox + (pad.position.X or 0)
             py = oy + (pad.position.Y or 0)
             sw = (pad.size.X if pad.size else 0.5)
             sh = (pad.size.Y if pad.size else 0.5)
             both = (pad.type or "").lower() in ("thru_hole", "np_thru_hole")
-            pads.append(_Pad(net=pad.net.number, x=px, y=py,
+            pads.append(_Pad(net=netnum, x=px, y=py,
                              w=sw, h=sh, both_layers=both))
     return pads
 
 
-def route_board(board, skip_net_codes: set[int] | None = None) -> dict:
+def route_board(board, skip_net_codes: set[int] | None = None,
+                power_net_codes: set[int] | None = None) -> dict:
     """Route the board in place. Returns {nets, routed, failed, tracks, vias}.
 
     ``skip_net_codes`` are nets the router leaves alone (e.g. a GND net that a
-    copper pour will connect instead)."""
+    copper pour will connect instead). ``power_net_codes`` get wider traces."""
     from kiutils.items.brditems import Segment, Via
     from kiutils.items.common import Net, Position
 
     skip = skip_net_codes or set()
-    pads = _abs_pads(board)
+    power = power_net_codes or set()
+    pads = _abs_pads(board, include_unconnected=True)
     if not pads:
         return {"nets": 0, "routed": 0, "failed": 0, "tracks": 0, "vias": 0}
 
@@ -138,6 +153,8 @@ def route_board(board, skip_net_codes: set[int] | None = None) -> dict:
         c, r = to_cell(p.x, p.y)
         layers = (0, 1) if p.both_layers else (0,)
         pad_layers.append((p, layers))
+        if p.net == BLOCKER:
+            continue  # real copper to avoid, but nothing to route to
         net_terms.setdefault(p.net, []).append(((c, r), layers))
         pad_xy[(c, r)] = (round(p.x, 3), round(p.y, 3))
     # phase 1: pad cores (protected); phase 2: clearance halos (fill empty).
@@ -159,7 +176,8 @@ def route_board(board, skip_net_codes: set[int] | None = None) -> dict:
         if len(terms) < 2 or net in skip:
             continue
         ok = _route_net(net, terms, owner, W, H, segments, vias,
-                        to_mm, pad_xy, Segment, Via, Net, Position)
+                        to_mm, pad_xy, Segment, Via, Net, Position,
+                        is_power=net in power)
         routed += ok
         failed += (len(terms) - 1) - ok
 
@@ -170,9 +188,13 @@ def route_board(board, skip_net_codes: set[int] | None = None) -> dict:
 
 
 def _route_net(net, terms, owner, W, H, segments, vias, to_mm, pad_xy,
-               Segment, Via, Net, Position) -> int:
+               Segment, Via, Net, Position, is_power=False) -> int:
     """Connect a net's terminals one by one. Returns #links made."""
-    width = POWER_TRACK_W if _is_power(net, terms) else TRACK_W
+    wide = is_power or len(terms) >= 5
+    width = POWER_TRACK_W if wide else TRACK_W
+    # wider tracks need a wider clearance halo so the extra copper still keeps
+    # 0.2 mm to neighbours (a 0.3 mm track at 2-cell spacing would leave 0.1 mm).
+    halo = CLEAR_CELLS + (1 if wide else 0)
 
     def passable(li, c, r):
         o = owner[li][r * W + c]
@@ -193,27 +215,33 @@ def _route_net(net, terms, owner, W, H, segments, vias, to_mm, pad_xy,
             continue
         links += 1
         _emit_path(path, net, width, segments, vias, owner, W, H,
-                   to_mm, pad_xy, Segment, Via, Net, Position)
+                   to_mm, pad_xy, Segment, Via, Net, Position, halo)
         for cell in path:
             connected.add(cell)
     return links
 
 
 def _lee(sources, targets, owner, W, H, net, passable):
-    """Dijkstra/Lee from any source cell to any target cell. Cells are
-    (c, r, layer). Returns the path as a list of cells, or None."""
-    pq = [(0, s) for s in sources]
+    """A* from any source cell to any target cell. Cells are (c, r, layer).
+    The Manhattan distance to the nearest target is an admissible heuristic
+    (every move costs >= 1), so A* finds the same shortest path Dijkstra would
+    while exploring far fewer cells on large boards. Returns the path or None."""
+    tcells = {(c, r) for (c, r, _l) in targets}
+
+    def h(c, r):
+        return min(abs(c - tc) + abs(r - tr) for (tc, tr) in tcells)
+
+    pq = [(h(c, r), 0, (c, r, li)) for (c, r, li) in sources]
     heapq.heapify(pq)
     dist = {s: 0 for s in sources}
     prev: dict = {s: None for s in sources}
     while pq:
-        d, cur = heapq.heappop(pq)
+        _f, d, cur = heapq.heappop(pq)
         if cur in targets:
             return _reconstruct(prev, cur)
         if d > dist.get(cur, 1 << 30):
             continue
         c, r, li = cur
-        # in-layer neighbours
         for dc, dr in ((1, 0), (-1, 0), (0, 1), (0, -1)):
             cc, rr = c + dc, r + dr
             if 0 <= cc < W and 0 <= rr < H and passable(li, cc, rr):
@@ -222,8 +250,7 @@ def _lee(sources, targets, owner, W, H, net, passable):
                 if nd < dist.get(nxt, 1 << 30):
                     dist[nxt] = nd
                     prev[nxt] = cur
-                    heapq.heappush(pq, (nd, nxt))
-        # via to the other layer
+                    heapq.heappush(pq, (nd + h(cc, rr), nd, nxt))
         ol = 1 - li
         if passable(ol, c, r):
             nxt = (c, r, ol)
@@ -231,7 +258,7 @@ def _lee(sources, targets, owner, W, H, net, passable):
             if nd < dist.get(nxt, 1 << 30):
                 dist[nxt] = nd
                 prev[nxt] = cur
-                heapq.heappush(pq, (nd, nxt))
+                heapq.heappush(pq, (nd + h(c, r), nd, nxt))
     return None
 
 
@@ -245,7 +272,7 @@ def _reconstruct(prev, cur):
 
 
 def _emit_path(path, net, width, segments, vias, owner, W, H,
-               to_mm, pad_xy, Segment, Via, Net, Position):
+               to_mm, pad_xy, Segment, Via, Net, Position, halo=CLEAR_CELLS):
     """Turn a cell path into merged Segments + Vias, and mark copper as used.
 
     Path endpoints that sit on a pad are snapped to the pad's exact centre so
@@ -254,8 +281,8 @@ def _emit_path(path, net, width, segments, vias, owner, W, H,
     # mark the centreline plus a clearance halo (without clobbering other
     # nets' copper) so later nets keep their distance.
     for (c, r, li) in path:
-        for dr in range(-CLEAR_CELLS, CLEAR_CELLS + 1):
-            for dc in range(-CLEAR_CELLS, CLEAR_CELLS + 1):
+        for dr in range(-halo, halo + 1):
+            for dc in range(-halo, halo + 1):
                 cc, rr = c + dc, r + dr
                 if 0 <= cc < W and 0 <= rr < H and owner[li][rr * W + cc] == 0:
                     owner[li][rr * W + cc] = net
