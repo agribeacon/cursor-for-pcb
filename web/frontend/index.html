@@ -60,10 +60,31 @@
     background:var(--panel)}
   .tab{padding:6px 14px;border-radius:6px;color:var(--muted);cursor:pointer;font-weight:600}
   .tab.active{background:var(--chip);color:var(--text)}
-  .view{flex:1;overflow:auto;display:flex;align-items:center;justify-content:center;padding:18px}
-  .view svg{max-width:100%;height:auto;background:#fff;border-radius:8px}
+  .tabs .tspacer{flex:1}
+  .toolgroup{display:flex;gap:3px;margin-right:8px}
+  .tool{background:var(--chip);border:1px solid var(--border);color:var(--text);
+    border-radius:6px;padding:5px 10px;cursor:pointer;font-size:13px}
+  .tool:hover{border-color:var(--accent)}
+  .tool.add{color:var(--accent);font-weight:600}
+  .addwrap{position:relative}
+  .palette{position:absolute;top:34px;right:0;width:280px;max-height:60vh;overflow:auto;
+    background:var(--panel2);border:1px solid var(--border);border-radius:8px;
+    padding:8px;display:none;z-index:20;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+  .palette.open{display:block}
+  .palette h4{font-size:10px;text-transform:uppercase;letter-spacing:.6px;
+    color:var(--muted);margin:8px 4px 6px}
+  .palette .chip{display:inline-block;background:var(--chip);border:1px solid var(--border);
+    border-radius:6px;padding:5px 9px;margin:2px;font-size:12px;cursor:pointer}
+  .palette .chip:hover{border-color:var(--accent);color:var(--accent)}
+  .palette .chip.block{border-color:#3b5168;color:var(--green)}
+  /* zoom/pan canvas */
+  .view{flex:1;overflow:hidden;position:relative;background:var(--bg);cursor:grab}
+  .view.panning{cursor:grabbing}
+  .zoomable{position:absolute;left:50%;top:50%;transform-origin:0 0;
+    will-change:transform;display:flex;align-items:center;justify-content:center}
+  .view svg{display:block;background:#fff;border-radius:8px}
   #schematic-view svg{background:#1e2127}
-  .empty{color:var(--muted);text-align:center;line-height:1.6}
+  .empty{color:var(--muted);text-align:center;line-height:1.6;white-space:nowrap}
   .status{display:flex;gap:18px;padding:8px 14px;border-top:1px solid var(--border);
     background:var(--panel);font-size:12px;color:var(--muted)}
   .badge{display:inline-flex;align-items:center;gap:6px}
@@ -110,12 +131,22 @@
       <div class="tabs">
         <div class="tab active" data-tab="schematic">Schematic</div>
         <div class="tab" data-tab="pcb">PCB</div>
+        <div class="tspacer"></div>
+        <div class="toolgroup">
+          <button class="tool" id="zoom-out" title="Zoom out">−</button>
+          <button class="tool" id="zoom-in" title="Zoom in">＋</button>
+          <button class="tool" id="zoom-fit" title="Fit">⊡ Fit</button>
+        </div>
+        <div class="addwrap">
+          <button class="tool add" id="add-btn">＋ Add ▾</button>
+          <div class="palette" id="palette"></div>
+        </div>
       </div>
       <div class="view" id="schematic-view">
-        <div class="empty">No schematic yet.<br/>Try <b>load usb</b> in the chat.</div>
+        <div class="zoomable"><div class="empty">No schematic yet.<br/>Try <b>load usb</b> or the <b>＋ Add</b> palette.</div></div>
       </div>
       <div class="view" id="pcb-view" style="display:none">
-        <div class="empty">No board yet.<br/>Type <b>build</b> to generate the PCB.</div>
+        <div class="zoomable"><div class="empty">No board yet.<br/>Click <b>⚡ Build</b> to generate the PCB.</div></div>
       </div>
       <div class="status" id="status">
         <span class="badge"><span class="dot warn"></span><span id="erc">ERC —</span></span>
@@ -164,22 +195,69 @@ function showTyping(){
 }
 function hideTyping(){const t=$("#typing"); if(t) t.remove();}
 
+let activeTab="schematic";
 function setTab(name){
+  activeTab=name;
   document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("active",t.dataset.tab===name));
-  $("#schematic-view").style.display = name==="schematic"?"flex":"none";
-  $("#pcb-view").style.display = name==="pcb"?"flex":"none";
+  $("#schematic-view").style.display = name==="schematic"?"block":"none";
+  $("#pcb-view").style.display = name==="pcb"?"block":"none";
+  applyView();
 }
 document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>setTab(t.dataset.tab));
+
+/* ---- pan + zoom -------------------------------------------------------- */
+const views={schematic:{x:0,y:0,s:1,fitted:false},pcb:{x:0,y:0,s:1,fitted:false}};
+function viewEl(){return $(activeTab==="schematic"?"#schematic-view":"#pcb-view");}
+function zoomEl(){return viewEl().querySelector(".zoomable");}
+function applyView(){
+  const v=views[activeTab];
+  zoomEl().style.transform=`translate(${v.x}px,${v.y}px) scale(${v.s})`;
+}
+function fitView(){
+  const view=viewEl(), z=zoomEl(), svg=z.querySelector("svg");
+  const v=views[activeTab];
+  if(!svg){v.x=v.y=0;v.s=1;applyView();return;}
+  const vw=view.clientWidth-40, vh=view.clientHeight-40;
+  const sw=svg.getBBox?svg.getBoundingClientRect().width/v.s:svg.clientWidth;
+  const sh=svg.getBoundingClientRect().height/v.s;
+  const s=Math.min(vw/sw, vh/sh, 4)||1;
+  v.s=s; v.x=-sw*s/2; v.y=-sh*s/2; v.fitted=true; applyView();
+}
+function zoomBy(f, cx, cy){
+  const view=viewEl(), v=views[activeTab];
+  const r=view.getBoundingClientRect();
+  cx=(cx??r.width/2); cy=(cy??r.height/2);
+  // keep the point under the cursor stable
+  const ox=cx-r.width/2-v.x, oy=cy-r.height/2-v.y;
+  const ns=Math.min(Math.max(v.s*f,.1),8);
+  const k=ns/v.s; v.x-=ox*(k-1); v.y-=oy*(k-1); v.s=ns; applyView();
+}
+function bindPanZoom(view){
+  view.addEventListener("wheel",e=>{e.preventDefault();
+    zoomBy(e.deltaY<0?1.12:1/1.12, e.clientX-view.getBoundingClientRect().left,
+           e.clientY-view.getBoundingClientRect().top);},{passive:false});
+  let drag=null;
+  view.addEventListener("mousedown",e=>{drag={x:e.clientX,y:e.clientY};view.classList.add("panning");});
+  window.addEventListener("mousemove",e=>{if(!drag)return;
+    const v=views[activeTab]; v.x+=e.clientX-drag.x; v.y+=e.clientY-drag.y;
+    drag={x:e.clientX,y:e.clientY}; applyView();});
+  window.addEventListener("mouseup",()=>{drag=null;view.classList.remove("panning");});
+}
+bindPanZoom($("#schematic-view")); bindPanZoom($("#pcb-view"));
+$("#zoom-in").onclick=()=>zoomBy(1.25);
+$("#zoom-out").onclick=()=>zoomBy(1/1.25);
+$("#zoom-fit").onclick=fitView;
 
 function render(state){
   const d=state.design;
   $("#design-name").textContent=d.name;
-  // schematic
-  $("#schematic-view").innerHTML = state.schematic_svg
+  // schematic + pcb go into the zoomable layer
+  $("#schematic-view .zoomable").innerHTML = state.schematic_svg
     || '<div class="empty">No schematic yet.</div>';
-  // pcb
-  $("#pcb-view").innerHTML = state.pcb_svg
-    || '<div class="empty">No board yet.<br/>Type <b>build</b> to generate the PCB.</div>';
+  $("#pcb-view .zoomable").innerHTML = state.pcb_svg
+    || '<div class="empty">No board yet.<br/>Click <b>⚡ Build</b> to generate the PCB.</div>';
+  // auto-fit when content arrives
+  requestAnimationFrame(()=>{ views.schematic.fitted=false; views.pcb.fitted=false; fitView(); });
   // objects
   $("#objects").innerHTML = d.components.map(c=>
     `<div class="obj"><div><div class="ref">${c.ref}</div>
@@ -269,7 +347,28 @@ $("#new-btn").onclick=newConversation;
 $("#export-btn").onclick=()=>send("export gerbers");
 document.querySelectorAll(".hint span").forEach(s=>s.onclick=()=>send(s.dataset.q));
 
-addMsg("Hi! I'm your PCB copilot. Tell me what to build — try **load usb**, then **build**. Type **help** for commands.","bot");
+/* ---- Add palette (manual part/block insertion) ------------------------ */
+const palette=$("#palette");
+$("#add-btn").onclick=(e)=>{e.stopPropagation();palette.classList.toggle("open");};
+document.addEventListener("click",e=>{if(!palette.contains(e.target)&&e.target!==$("#add-btn"))palette.classList.remove("open");});
+async function addItem(kind,name){
+  const r=await fetch("/api/add",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({kind,name})});
+  const data=await r.json();
+  if(data.error){addMsg("⚠️ "+data.error,"bot");return;}
+  render(data.state);
+  addMsg(`➕ ${data.message} — click **⚡ Build** when ready.`,"bot");
+}
+fetch("/api/parts").then(r=>r.json()).then(p=>{
+  let html='<h4>Blocks (recommended)</h4>';
+  (p.blocks||[]).forEach(b=>html+=`<span class="chip block" title="${(b.help||'').replace(/"/g,'')}" data-k="block" data-n="${b.name}">${b.name}</span>`);
+  html+='<h4>Parts</h4>';
+  (p.parts||[]).forEach(t=>html+=`<span class="chip" data-k="part" data-n="${t.type}">${t.type}</span>`);
+  palette.innerHTML=html;
+  palette.querySelectorAll(".chip").forEach(c=>c.onclick=()=>addItem(c.dataset.k,c.dataset.n));
+});
+
+addMsg("Hi! I'm your PCB copilot. Describe a board, or use **＋ Add** to drop in parts/blocks, then **⚡ Build**. Scroll to zoom, drag to pan.","bot");
 fetch("/api/state").then(r=>r.json()).then(render);
 </script>
 </body>

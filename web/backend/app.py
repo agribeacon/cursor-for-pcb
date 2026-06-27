@@ -17,7 +17,7 @@ from starlette.responses import JSONResponse, FileResponse
 from starlette.routing import Route
 from starlette.staticfiles import StaticFiles
 
-from pcbforge import Design, build_all, library, schematic_svg
+from pcbforge import Design, build_all, library, schematic_svg, blocks
 from pcbforge.circuits import EXAMPLES
 
 from . import agent, llm
@@ -66,8 +66,33 @@ async def state(request):
 
 
 async def parts(request):
-    return JSONResponse({"parts": library.list_types(),
-                         "examples": list(EXAMPLES)})
+    return JSONResponse({
+        "parts": library.list_types(),
+        "blocks": [{"name": n, "help": blocks.BLOCK_HELP.get(n, "")}
+                   for n in blocks.BLOCKS],
+        "examples": list(EXAMPLES),
+    })
+
+
+async def add(request):
+    """Manually add a part or a block to the current design (palette click)."""
+    body = await request.json()
+    kind = body.get("kind", "part")
+    name = body.get("name", "")
+    try:
+        if kind == "block":
+            fn = blocks.BLOCKS.get(name)
+            if not fn:
+                return JSONResponse({"error": f"unknown block {name}"}, status_code=400)
+            fn(_state["design"])
+            msg = f"added block {name}"
+        else:
+            comp = _state["design"].add_component(name, value=body.get("value", ""))
+            msg = f"added {comp.ref}"
+        _state["build"] = None
+        return JSONResponse({"message": msg, "state": _snapshot(None)})
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
 
 
 async def chat(request):
@@ -110,6 +135,7 @@ routes = [
     Route("/api/chat", chat, methods=["POST"]),
     Route("/api/build", build, methods=["POST"]),
     Route("/api/new", new_design, methods=["POST"]),
+    Route("/api/add", add, methods=["POST"]),
 ]
 
 app = Starlette(routes=routes)
