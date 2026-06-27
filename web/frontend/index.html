@@ -4,6 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>cursor-for-pcb</title>
+<script type="module" src="/static/vendor/kicanvas.js"></script>
 <style>
   :root{
     --bg:#15171c; --panel:#1e2127; --panel2:#23272e; --border:#2f343d;
@@ -47,13 +48,17 @@
   @keyframes blink{0%,80%,100%{opacity:.25}40%{opacity:1}}
   .composer.busy{opacity:.5;pointer-events:none}
   .btn:disabled{opacity:.5;cursor:default}
-  .composer{display:flex;gap:8px;padding:12px;border-top:1px solid var(--border)}
-  .composer input{flex:1;background:#0d1117;border:1px solid var(--border);
-    color:var(--text);border-radius:8px;padding:10px 12px;outline:none}
-  .composer input:focus{border-color:var(--accent)}
-  .hint{padding:0 14px 10px;color:var(--muted);font-size:12px}
-  .hint span{color:var(--accent);cursor:pointer;margin-right:8px}
-  .hint span:hover{text-decoration:underline}
+  .composer{display:flex;gap:8px;padding:12px;border-top:1px solid var(--border);align-items:flex-end}
+  .composer textarea{flex:1;background:#0d1117;border:1px solid var(--border);
+    color:var(--text);border-radius:8px;padding:10px 12px;outline:none;resize:none;
+    font-family:inherit;font-size:14px;line-height:1.4;max-height:160px;overflow-y:auto}
+  .composer textarea:focus{border-color:var(--accent)}
+  .composer .btn{padding:10px 16px}
+  .starters{padding:6px 12px 10px;display:flex;flex-direction:column;gap:6px}
+  .starters-title{font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:2px 2px 2px}
+  .starter{text-align:left;background:var(--chip);border:1px solid var(--border);
+    color:var(--text);border-radius:8px;padding:9px 11px;font-size:13px;cursor:pointer}
+  .starter:hover{border-color:var(--accent);background:#2b3340}
   /* canvas */
   .canvas{display:flex;flex-direction:column;min-width:0;background:var(--bg)}
   .tabs{display:flex;gap:4px;padding:8px 10px;border-bottom:1px solid var(--border);
@@ -84,6 +89,8 @@
     will-change:transform;display:flex;align-items:center;justify-content:center}
   .view svg{display:block;background:#fff;border-radius:8px}
   #schematic-view svg{background:#1e2127}
+  #pcb-view{cursor:default}
+  #pcb-view kicanvas-embed{position:absolute;inset:0;width:100%;height:100%}
   .empty{color:var(--muted);text-align:center;line-height:1.6;white-space:nowrap}
   .status{display:flex;gap:18px;padding:8px 14px;border-top:1px solid var(--border);
     background:var(--panel);font-size:12px;color:var(--muted)}
@@ -115,14 +122,15 @@
   <main>
     <section class="chat">
       <div class="messages" id="messages"></div>
-      <div class="hint">
-        <span data-q="load usb">load usb</span>
-        <span data-q="load led">load led</span>
-        <span data-q="add resistor 330">add resistor</span>
-        <span data-q="help">help</span>
+      <div class="starters" id="starters">
+        <div class="starters-title">Quick start</div>
+        <button class="starter" data-q="Design an ESP32 dev board powered from USB-C with a status LED and a reset button. Build and review it.">⚡ ESP32 dev board (USB-C)</button>
+        <button class="starter" data-q="Build an ESP32 board with an I2C sensor header and 2 status LEDs. Then review it.">🔌 ESP32 + I²C + 2 LEDs</button>
+        <button class="starter" data-q="Design a USB-C to 3.3V power supply with a power LED. Build and review.">🔋 USB-C → 3.3V supply</button>
+        <button class="starter" data-q="Make a simple LED blinker: 5V through a 330 ohm resistor to an LED. Build it.">💡 LED blinker</button>
       </div>
       <div class="composer">
-        <input id="input" placeholder="Describe your board…  e.g. load usb, then build" autocomplete="off"/>
+        <textarea id="input" rows="1" placeholder="Describe your board…  (Enter to send, Shift+Enter for new line)"></textarea>
         <button class="btn" id="send-btn">Send</button>
       </div>
     </section>
@@ -210,11 +218,14 @@ const views={schematic:{x:0,y:0,s:1,fitted:false},pcb:{x:0,y:0,s:1,fitted:false}
 function viewEl(){return $(activeTab==="schematic"?"#schematic-view":"#pcb-view");}
 function zoomEl(){return viewEl().querySelector(".zoomable");}
 function applyView(){
+  const z=zoomEl(); if(!z) return;   // PCB uses KiCanvas — no transform layer
   const v=views[activeTab];
-  zoomEl().style.transform=`translate(${v.x}px,${v.y}px) scale(${v.s})`;
+  z.style.transform=`translate(${v.x}px,${v.y}px) scale(${v.s})`;
 }
 function fitView(){
-  const view=viewEl(), z=zoomEl(), svg=z.querySelector("svg");
+  const view=viewEl(), z=zoomEl();
+  if(!z) return;
+  const svg=z.querySelector("svg");
   const v=views[activeTab];
   if(!svg){v.x=v.y=0;v.s=1;applyView();return;}
   const vw=view.clientWidth-40, vh=view.clientHeight-40;
@@ -224,6 +235,7 @@ function fitView(){
   v.s=s; v.x=-sw*s/2; v.y=-sh*s/2; v.fitted=true; applyView();
 }
 function zoomBy(f, cx, cy){
+  if(!zoomEl()) return;              // PCB uses KiCanvas's own zoom
   const view=viewEl(), v=views[activeTab];
   const r=view.getBoundingClientRect();
   cx=(cx??r.width/2); cy=(cy??r.height/2);
@@ -243,21 +255,26 @@ function bindPanZoom(view){
     drag={x:e.clientX,y:e.clientY}; applyView();});
   window.addEventListener("mouseup",()=>{drag=null;view.classList.remove("panning");});
 }
-bindPanZoom($("#schematic-view")); bindPanZoom($("#pcb-view"));
-$("#zoom-in").onclick=()=>zoomBy(1.25);
-$("#zoom-out").onclick=()=>zoomBy(1/1.25);
-$("#zoom-fit").onclick=fitView;
+bindPanZoom($("#schematic-view"));   // PCB uses KiCanvas's own pan/zoom
+$("#zoom-in").onclick=()=>{if(activeTab==="schematic")zoomBy(1.25);};
+$("#zoom-out").onclick=()=>{if(activeTab==="schematic")zoomBy(1/1.25);};
+$("#zoom-fit").onclick=()=>{if(activeTab==="schematic")fitView();};
 
 function render(state){
   const d=state.design;
   $("#design-name").textContent=d.name;
-  // schematic + pcb go into the zoomable layer
+  // schematic → my zoomable SVG layer
   $("#schematic-view .zoomable").innerHTML = state.schematic_svg
     || '<div class="empty">No schematic yet.</div>';
-  $("#pcb-view .zoomable").innerHTML = state.pcb_svg
-    || '<div class="empty">No board yet.<br/>Click <b>⚡ Build</b> to generate the PCB.</div>';
-  // auto-fit when content arrives
-  requestAnimationFrame(()=>{ views.schematic.fitted=false; views.pcb.fitted=false; fitView(); });
+  // PCB → render the REAL .kicad_pcb with KiCanvas (native KiCad look + zoom/pan)
+  const pv=$("#pcb-view");
+  if(state.build && state.build.pcb_file){
+    pv.innerHTML='<kicanvas-embed controls="full" theme="kicad" '
+      +'src="/api/pcb_file?t='+Date.now()+'"></kicanvas-embed>';
+  }else{
+    pv.innerHTML='<div class="zoomable"><div class="empty">No board yet.<br/>Click <b>⚡ Build</b> to generate the PCB.</div></div>';
+  }
+  requestAnimationFrame(()=>{ if(activeTab==="schematic"){views.schematic.fitted=false; fitView();} });
   // objects
   $("#objects").innerHTML = d.components.map(c=>
     `<div class="obj"><div><div class="ref">${c.ref}</div>
@@ -332,20 +349,35 @@ async function newConversation(){
   if(sending) return;
   await fetch("/api/new",{method:"POST"});
   messages.innerHTML="";
+  $("#starters").style.display="";   // show quick-start again
   addMsg("New design started. What do you want to build?","bot");
   fetch("/api/state").then(r=>r.json()).then(render);
 }
 
-$("#send-btn").onclick=()=>{const v=$("#input").value.trim(); if(v){$("#input").value="";send(v);}};
-// Ignore Enter while the IME is composing (Vietnamese/CJK input fires a
-// second Enter keydown on commit, which otherwise sends the message twice).
-$("#input").addEventListener("keydown",e=>{
-  if(e.key==="Enter" && !e.isComposing && e.keyCode!==229){e.preventDefault();$("#send-btn").click();}
+const input=$("#input");
+function autoGrow(){input.style.height="auto";input.style.height=Math.min(input.scrollHeight,160)+"px";}
+input.addEventListener("input",autoGrow);
+function submitChat(){
+  const v=input.value.trim();
+  if(!v) return;
+  input.value=""; autoGrow();
+  $("#starters").style.display="none";
+  send(v);
+}
+$("#send-btn").onclick=submitChat;
+// Enter sends, Shift+Enter = newline. Ignore Enter while the IME is composing
+// (Vietnamese/CJK input fires a second Enter keydown on commit → double send).
+input.addEventListener("keydown",e=>{
+  if(e.key==="Enter" && !e.shiftKey && !e.isComposing && e.keyCode!==229){
+    e.preventDefault(); submitChat();
+  }
+});
+document.querySelectorAll(".starter").forEach(b=>b.onclick=()=>{
+  $("#starters").style.display="none"; send(b.dataset.q);
 });
 $("#build-btn").onclick=build;
 $("#new-btn").onclick=newConversation;
 $("#export-btn").onclick=()=>send("export gerbers");
-document.querySelectorAll(".hint span").forEach(s=>s.onclick=()=>send(s.dataset.q));
 
 /* ---- Add palette (manual part/block insertion) ------------------------ */
 const palette=$("#palette");

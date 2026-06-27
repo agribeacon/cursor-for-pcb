@@ -128,6 +128,17 @@ async def new_design(request):
     return JSONResponse({"state": _snapshot(None)})
 
 
+async def pcb_file(request):
+    """Serve the current design's real .kicad_pcb so KiCanvas can render it
+    in-browser with native KiCad look + zoom/pan."""
+    d = _state["design"]
+    path = _out_dir(d) / f"{d.name}.kicad_pcb"
+    if not path.exists():
+        return JSONResponse({"error": "no board yet"}, status_code=404)
+    return FileResponse(path, media_type="application/octet-stream",
+                        headers={"Cache-Control": "no-store"})
+
+
 async def index(request):
     return FileResponse(FRONTEND / "index.html")
 
@@ -140,6 +151,7 @@ routes = [
     Route("/api/build", build, methods=["POST"]),
     Route("/api/new", new_design, methods=["POST"]),
     Route("/api/add", add, methods=["POST"]),
+    Route("/api/pcb_file", pcb_file),
 ]
 
 app = Starlette(routes=routes)
