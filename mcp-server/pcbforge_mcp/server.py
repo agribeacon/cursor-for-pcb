@@ -170,6 +170,20 @@ def export_bom() -> str:
 
 
 @mcp.tool()
+def export_fab() -> dict:
+    """Build the board and produce a complete fabrication package a PCB house can
+    run directly: Gerbers (incl. paste/stencil + Edge.Cuts outline), Excellon
+    drill, Pick & Place centroid CSV, BOM CSV, and fab-notes — zipped. Returns
+    the zip path and the file manifest."""
+    from pcbforge import fab as _fab
+    out = _out_dir(_design)
+    res = build_all(_design, out, gerbers=False)
+    if not res.pcb_file:
+        return {"error": "build failed: " + "; ".join(res.errors)}
+    return _fab.export_fab(res.pcb_file, _design, out)
+
+
+@mcp.tool()
 def get_schematic_svg() -> str:
     """Return the schematic SVG markup for the current design (rebuilds it)."""
     from pcbforge import schematic_svg

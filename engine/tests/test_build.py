@@ -54,6 +54,28 @@ def test_blocks_compose_to_senior_grade(tmp_path):
     assert res.review["grade"] in ("A", "B"), res.review
 
 
+def test_power_led_board_grade_A(tmp_path):
+    """A complete standard-pitch board must earn grade A (0 errors, 0 warnings)."""
+    res = build_all(build_example("power_led_board"), tmp_path / "p", drc=True)
+    assert res.review["grade"] == "A", res.review["findings"]
+
+
+def test_fab_package_is_complete(tmp_path):
+    """The fab package must contain everything a board house needs."""
+    import zipfile
+    from pcbforge import fab
+    design = build_example("power_led_board")
+    res = build_all(design, tmp_path / "f", drc=False)
+    pkg = fab.export_fab(res.pcb_file, design, tmp_path / "f")
+    names = zipfile.ZipFile(pkg["zip"]).namelist()
+    assert any(n.endswith("-pos.csv") for n in names), "missing Pick & Place"
+    assert any(n.endswith("-bom.csv") for n in names), "missing BOM"
+    assert any("Edge_Cuts" in n for n in names), "missing board outline"
+    assert any("Paste" in n for n in names), "missing paste/stencil"
+    assert any(n.endswith(".drl") for n in names), "missing drill"
+    assert any(n.endswith("F_Cu.gtl") for n in names), "missing copper gerber"
+
+
 def test_bom_groups_parts():
     from pcbforge import bom
     design = build_example("power_led_board")

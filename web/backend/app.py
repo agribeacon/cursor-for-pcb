@@ -19,7 +19,7 @@ from starlette.responses import JSONResponse, FileResponse
 from starlette.routing import Route
 from starlette.staticfiles import StaticFiles
 
-from pcbforge import Design, build_all, library, schematic_svg, blocks
+from pcbforge import Design, build_all, library, schematic_svg, blocks, fab
 from pcbforge.circuits import EXAMPLES
 
 from . import agent, llm
@@ -134,6 +134,25 @@ async def new_design(request):
         return JSONResponse({"state": _snapshot(None)})
 
 
+def _do_fab():
+    d = _state["design"]
+    res = _do_build()
+    if not res or not res.get("pcb_file"):
+        return None
+    return fab.export_fab(res["pcb_file"], d, _out_dir(d))
+
+
+async def fab_export(request):
+    """Build + produce the complete fab package, return the zip for download."""
+    async with _lock:
+        pkg = await run_in_threadpool(_do_fab)
+    if not pkg:
+        return JSONResponse({"error": "build failed"}, status_code=400)
+    zip_path = Path(pkg["zip"])
+    return FileResponse(zip_path, filename=zip_path.name,
+                        media_type="application/zip")
+
+
 async def pcb_file(request):
     """Serve the current design's real .kicad_pcb so KiCanvas can render it
     in-browser with native KiCad look + zoom/pan."""
@@ -158,6 +177,7 @@ routes = [
     Route("/api/new", new_design, methods=["POST"]),
     Route("/api/add", add, methods=["POST"]),
     Route("/api/pcb_file", pcb_file),
+    Route("/api/fab", fab_export, methods=["POST"]),
 ]
 
 app = Starlette(routes=routes)

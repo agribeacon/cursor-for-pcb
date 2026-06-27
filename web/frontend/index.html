@@ -115,7 +115,7 @@
     <div class="name" id="design-name">untitled</div>
     <div class="spacer"></div>
     <button class="btn ghost" id="new-btn">＋ New</button>
-    <button class="btn ghost" id="export-btn">Export Gerbers</button>
+    <button class="btn ghost" id="export-btn">⤓ Fab package</button>
     <button class="btn" id="build-btn">⚡ Build</button>
   </header>
   <main>
@@ -371,7 +371,22 @@ document.querySelectorAll(".starter").forEach(b=>b.onclick=()=>{
 });
 $("#build-btn").onclick=build;
 $("#new-btn").onclick=newConversation;
-$("#export-btn").onclick=()=>send("export gerbers");
+async function exportFab(){
+  if(sending) return;
+  setBusy(true); addMsg("Generating fab package (Gerbers + drill + Pick&Place + BOM)…","bot");
+  try{
+    const r=await fetch("/api/fab",{method:"POST"});
+    if(!r.ok){addMsg("⚠️ Build a board first.","bot");return;}
+    const blob=await r.blob();
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(blob);
+    a.download=($("#design-name").textContent||"board")+"_fab.zip";
+    a.click(); URL.revokeObjectURL(a.href);
+    addMsg("✅ Downloaded fab package — ready to send to a PCB house.","bot");
+  }catch(e){ addMsg("⚠️ "+e,"bot"); }
+  finally{ setBusy(false); }
+}
+$("#export-btn").onclick=exportFab;
 
 /* ---- Add palette (manual part/block insertion) ------------------------ */
 const palette=$("#palette");

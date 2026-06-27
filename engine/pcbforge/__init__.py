@@ -9,7 +9,7 @@ from __future__ import annotations
 from .model import Design, Component, Net, Connection, DesignError
 from .project import build_all, BuildResult
 from . import (library, build, pcb, render, schematic_svg, circuits,
-               review, bom, blocks)
+               review, bom, blocks, fab)
 
 __version__ = "0.1.0"
 

@@ -201,12 +201,14 @@ def review(design: Design, build_result: dict | None = None) -> Review:
               "board is autorouted", "board is not routed", severity="warn")
 
     # ---- grade ----------------------------------------------------------
+    # A = no electrical errors AND no warnings (copper/decoupling/etc.).
+    # Info-only findings (e.g. "no ground pour" on a small board) don't block A.
     pct = (rv.score / rv.max_score * 100) if rv.max_score else 0
     if rv.errors:
         rv.grade = "F" if pct < 60 else "C"
-    elif pct >= 95:
+    elif rv.warnings == 0:
         rv.grade = "A"
-    elif pct >= 85:
+    elif rv.warnings <= 2 and pct >= 85:
         rv.grade = "B"
     elif pct >= 70:
         rv.grade = "C"

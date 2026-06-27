@@ -169,6 +169,10 @@ def route_board(board, skip_net_codes: set[int] | None = None,
     segments: list = []
     vias: list = []
     routed = failed = 0
+    # On small/medium boards plain Lee/Dijkstra (no heuristic) explores fully
+    # and finds cleaner geometry; on large boards that's too slow, so switch to
+    # the A* heuristic for speed. (Manhattan A* is admissible either way.)
+    use_astar = (W * H) > 55000
 
     # route nets with fewer terminals first (easier, frees space)
     for net in sorted(net_terms, key=lambda n: len(net_terms[n])):
@@ -177,7 +181,7 @@ def route_board(board, skip_net_codes: set[int] | None = None,
             continue
         ok = _route_net(net, terms, owner, W, H, segments, vias,
                         to_mm, pad_xy, Segment, Via, Net, Position,
-                        is_power=net in power)
+                        is_power=net in power, use_astar=use_astar)
         routed += ok
         failed += (len(terms) - 1) - ok
 
@@ -188,7 +192,7 @@ def route_board(board, skip_net_codes: set[int] | None = None,
 
 
 def _route_net(net, terms, owner, W, H, segments, vias, to_mm, pad_xy,
-               Segment, Via, Net, Position, is_power=False) -> int:
+               Segment, Via, Net, Position, is_power=False, use_astar=True) -> int:
     """Connect a net's terminals one by one. Returns #links made."""
     wide = is_power or len(terms) >= 5
     width = POWER_TRACK_W if wide else TRACK_W
@@ -210,7 +214,7 @@ def _route_net(net, terms, owner, W, H, segments, vias, to_mm, pad_xy,
 
     for (tc, tr), tls in pending:
         targets = {(tc, tr, li) for li in tls}
-        path = _lee(connected, targets, owner, W, H, net, passable)
+        path = _lee(connected, targets, owner, W, H, net, passable, use_astar)
         if not path:
             continue
         links += 1
@@ -221,14 +225,16 @@ def _route_net(net, terms, owner, W, H, segments, vias, to_mm, pad_xy,
     return links
 
 
-def _lee(sources, targets, owner, W, H, net, passable):
-    """A* from any source cell to any target cell. Cells are (c, r, layer).
-    The Manhattan distance to the nearest target is an admissible heuristic
-    (every move costs >= 1), so A* finds the same shortest path Dijkstra would
-    while exploring far fewer cells on large boards. Returns the path or None."""
+def _lee(sources, targets, owner, W, H, net, passable, use_astar=True):
+    """Shortest-path from any source cell to any target cell. Cells are
+    (c, r, layer). With ``use_astar`` a Manhattan heuristic prunes the search
+    (fast on big boards); without it, plain Dijkstra explores fully and tends to
+    pick cleaner geometry on small boards. Returns the path or None."""
     tcells = {(c, r) for (c, r, _l) in targets}
 
     def h(c, r):
+        if not use_astar:
+            return 0
         return min(abs(c - tc) + abs(r - tr) for (tc, tr) in tcells)
 
     pq = [(h(c, r), 0, (c, r, li)) for (c, r, li) in sources]
