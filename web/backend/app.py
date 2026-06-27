@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 
 from starlette.applications import Starlette
+from starlette.concurrency import run_in_threadpool
 from starlette.responses import JSONResponse, FileResponse
 from starlette.routing import Route
 from starlette.staticfiles import StaticFiles
@@ -100,21 +101,24 @@ async def chat(request):
     message = body.get("message", "")
     if llm.available():
         # Claude drives the engine via tool use; it calls `build` itself.
+        # Run in a threadpool so the blocking LLM + build don't freeze the server.
         _state["out_dir"] = _out_dir
-        reply, did_build = llm.run(_state, message, _state.get("history", []))
+        reply, did_build = await run_in_threadpool(
+            llm.run, _state, message, _state.get("history", []))
         build_result = _state["build"] if did_build else None
         return JSONResponse({"reply": reply, "did_build": did_build,
                              "state": _snapshot(build_result), "engine": "llm"})
     design, reply, should_build = agent.handle(_state["design"], message)
     _state["design"] = design
     _state["build"] = None
-    build_result = _do_build() if should_build else None
+    build_result = await run_in_threadpool(_do_build) if should_build else None
     return JSONResponse({"reply": reply, "did_build": should_build,
                          "state": _snapshot(build_result), "engine": "parser"})
 
 
 async def build(request):
-    return JSONResponse({"state": _snapshot(_do_build())})
+    result = await run_in_threadpool(_do_build)
+    return JSONResponse({"state": _snapshot(result)})
 
 
 async def new_design(request):
