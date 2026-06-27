@@ -48,7 +48,11 @@ class BuildResult:
 
 
 def build_all(design: Design, out_dir: str | Path,
-              gerbers: bool = False, drc: bool = True) -> BuildResult:
+              gerbers: bool = False, drc: bool = True,
+              fast: bool = False) -> BuildResult:
+    """Build a design into artifacts + review. ``fast`` does a single placement
+    candidate (for snappy interactive use); the default tries several and keeps
+    the cleanest by DRC."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     res = BuildResult(
@@ -91,13 +95,18 @@ def build_all(design: Design, out_dir: str | Path,
                         if name.upper() in pcb.POUR_NETS), default=0)
         n_parts = len(design.components)
         candidates = []
-        if drc and gnd_pads >= 3:
-            candidates.append(("pour", "insertion", True))   # ground plane
-        candidates.append(("ins", "insertion", False))        # baseline
-        # the connectivity candidate is an extra full route+DRC pass — only worth
-        # it on small/medium boards where routing is fast.
-        if drc and 6 < n_parts <= 12:
-            candidates.append(("con", "connectivity", False)) # cluster nets
+        if fast:
+            # one candidate only — pour if there's a ground to plane, else plain
+            candidates.append(("pour", "insertion", True) if gnd_pads >= 3
+                              else ("ins", "insertion", False))
+        else:
+            if drc and gnd_pads >= 3:
+                candidates.append(("pour", "insertion", True))   # ground plane
+            candidates.append(("ins", "insertion", False))        # baseline
+            # connectivity candidate is an extra route+DRC pass — only worth it
+            # on small/medium boards where routing is fast.
+            if drc and 6 < n_parts <= 12:
+                candidates.append(("con", "connectivity", False))
         best = None  # (score_tuple, rstats, drc_report, tmp_path)
         for label, order, pour in candidates:
             tmp = out / f".cand_{label}.kicad_pcb"

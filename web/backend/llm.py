@@ -8,6 +8,7 @@ exposes. Without a key, the backend falls back to the deterministic parser in
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 
@@ -184,6 +185,18 @@ def execute_tool(state: dict, name: str, args: dict) -> tuple[str, bool]:
     """
     d: Design = state["design"]
     did_build = False
+
+    def cached_build():
+        """Build once per unique design — `build` then `review_design` on the
+        same design reuses the result instead of routing twice."""
+        h = hashlib.sha1(json.dumps(d.to_dict(), sort_keys=True).encode()).hexdigest()
+        if state.get("build_hash") == h and state.get("build"):
+            return state["build"]
+        res = build_all(d, state["out_dir"](d), fast=True)
+        state["build"] = res.to_dict()
+        state["build_hash"] = h
+        return state["build"]
+
     try:
         if name == "list_part_types":
             return json.dumps([t["type"] for t in library.list_types()]), False
@@ -206,13 +219,11 @@ def execute_tool(state: dict, name: str, args: dict) -> tuple[str, bool]:
         if name == "get_design":
             return json.dumps(d.to_dict()), False
         if name == "build":
-            res = build_all(d, state["out_dir"](d), gerbers=args.get("gerbers", False))
-            state["build"] = res.to_dict()
-            did_build = True
-            rv = res.review or {}
-            return (f"build ok={res.ok} ERC_errors={res.erc_errors} "
-                    f"DRC_unconnected={res.drc_unconnected} copper_DRC={res.drc_copper} "
-                    f"tracks={res.tracks} | review grade={rv.get('grade')} "
+            b = cached_build()
+            rv = b.get("review") or {}
+            return (f"build ok={b['ok']} ERC_errors={b['erc_errors']} "
+                    f"DRC_unconnected={b['drc_unconnected']} copper_DRC={b['drc_copper']} "
+                    f"tracks={b['tracks']} | review grade={rv.get('grade')} "
                     f"({rv.get('errors')} errors)"), True
         if name == "list_blocks":
             return json.dumps(blocks.BLOCK_HELP), False
@@ -225,14 +236,13 @@ def execute_tool(state: dict, name: str, args: dict) -> tuple[str, bool]:
             info = fn(d, **opts)
             return json.dumps(info), False
         if name == "review_design":
-            from pcbforge import review as _review
-            res = build_all(d, state["out_dir"](d))
-            state["build"] = res.to_dict()
-            rv = _review.review(d, res.to_dict())
-            issues = [f["message"] for f in rv.findings
-                      if f.severity in ("error", "warn")]
-            return json.dumps({"grade": rv.grade, "score": rv.score,
-                               "max_score": rv.max_score, "issues": issues}), True
+            b = cached_build()
+            rv = b.get("review") or {}
+            issues = [f["message"] for f in rv.get("findings", [])
+                      if f["severity"] in ("error", "warn")]
+            return json.dumps({"grade": rv.get("grade"), "score": rv.get("score"),
+                               "max_score": rv.get("max_score"),
+                               "issues": issues}), True
         return f"unknown tool {name}", False
     except Exception as exc:
         return f"ERROR: {exc}", did_build
