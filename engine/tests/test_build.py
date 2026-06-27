@@ -44,6 +44,16 @@ def test_designs_are_electrically_senior(name, tmp_path):
     assert res.review["grade"] in ("A", "B"), res.review
 
 
+def test_blocks_compose_to_senior_grade(tmp_path):
+    """A board composed purely from senior-verified blocks must pass the review
+    with zero electrical errors and an A/B grade."""
+    design = build_example("esp32_iot_node")
+    res = build_all(design, tmp_path / "iot", drc=True)
+    assert res.erc_errors == 0
+    assert res.review["errors"] == 0, res.review["findings"]
+    assert res.review["grade"] in ("A", "B"), res.review
+
+
 def test_bom_groups_parts():
     from pcbforge import bom
     design = build_example("power_led_board")

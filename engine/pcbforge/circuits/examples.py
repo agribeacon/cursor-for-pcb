@@ -130,12 +130,30 @@ def esp32_dev_board() -> Design:
     return d
 
 
+def esp32_iot_node() -> Design:
+    """An ESP32 IoT node assembled purely from senior-verified blocks: USB-C
+    power, ESP32 core, an I²C sensor header, two status LEDs and a user button.
+    Composing blocks guarantees the board passes the senior review."""
+    from .. import blocks as B
+    d = Design(name="esp32_iot_node",
+               notes="Block-composed: USB-C power + ESP32 core + I2C + 2 LEDs + button.")
+    B.usb_c_power(d)
+    core = B.esp32_core(d)
+    g = core["gpio"]
+    B.i2c_bus(d, scl_pin=g[0], sda_pin=g[1])     # io4 / io5
+    B.status_led(d, g[2], "GRN")                 # io16
+    B.status_led(d, g[3], "RED")                 # io17
+    B.user_button(d, g[4])                       # io18
+    return d
+
+
 EXAMPLES: dict[str, Callable[[], Design]] = {
     "led_resistor": led_resistor,
     "voltage_divider": voltage_divider,
     "power_led_board": power_led_board,
     "usb_3v3": usb_3v3_regulator,
     "esp32_dev_board": esp32_dev_board,
+    "esp32_iot_node": esp32_iot_node,
 }
 
 

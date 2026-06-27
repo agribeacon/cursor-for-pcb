@@ -98,6 +98,30 @@ def remove_part(ref: str) -> str:
 
 
 @mcp.tool()
+def list_blocks() -> dict:
+    """List senior-verified circuit blocks you can compose with `add_block`
+    (usb_c_power, esp32_core, status_led, i2c_bus, user_button). Composing
+    blocks yields a board that passes the design review by construction."""
+    from pcbforge import blocks
+    return blocks.BLOCK_HELP
+
+
+@mcp.tool()
+def add_block(name: str, gpio_pin: str = "", scl_pin: str = "",
+              sda_pin: str = "", color: str = "", value: str = "") -> str:
+    """Add a pre-engineered block. Add 'usb_c_power' then 'esp32_core' first;
+    `esp32_core` returns the free GPIO pins to wire peripheral blocks to."""
+    from pcbforge import blocks
+    fn = blocks.BLOCKS.get(name)
+    if not fn:
+        return f"unknown block '{name}'. Have: {list(blocks.BLOCKS)}"
+    opts = {k: v for k, v in dict(gpio_pin=gpio_pin, scl_pin=scl_pin,
+            sda_pin=sda_pin, color=color, value=value).items() if v}
+    info = fn(_design, **opts)
+    return f"added block {name}\n{info}\n\n" + _summary(_design)
+
+
+@mcp.tool()
 def connect(net: str, pins: list[str]) -> str:
     """Connect pins onto a net. Each pin is 'REF.PIN', where PIN is a number
     or a friendly name (e.g. 'U1.vin', 'R1.2', 'D1.a'). Reusing a net name

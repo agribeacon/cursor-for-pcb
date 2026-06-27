@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import os
 
-from pcbforge import Design, build_all, library, schematic_svg  # noqa: F401
+from pcbforge import Design, build_all, library, schematic_svg, blocks  # noqa: F401
 from pcbforge.circuits import EXAMPLES, build_example
 
 MODEL = os.environ.get("PCBFORGE_LLM_MODEL", "claude-opus-4-8")
@@ -107,6 +107,34 @@ TOOLS = [
         },
     },
     {
+        "name": "list_blocks",
+        "description": "List senior-verified circuit blocks you can compose "
+                       "(usb_c_power, esp32_core, status_led, i2c_bus, user_button). "
+                       "Composing blocks is the preferred way to build — each block "
+                       "is already correctly decoupled/strapped.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "add_block",
+        "description": "Add a pre-engineered block to the design. 'esp32_core' "
+                       "returns the list of free GPIO pins (e.g. 'U1.io4') — use "
+                       "those as gpio_pin/scl_pin/sda_pin for the peripheral blocks. "
+                       "Add 'usb_c_power' and 'esp32_core' first.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string",
+                         "enum": list(blocks.BLOCKS)},
+                "gpio_pin": {"type": "string"},
+                "scl_pin": {"type": "string"},
+                "sda_pin": {"type": "string"},
+                "color": {"type": "string"},
+                "value": {"type": "string"},
+            },
+            "required": ["name"],
+        },
+    },
+    {
         "name": "review_design",
         "description": "Run a senior design review (decoupling, bulk caps, LED "
                        "resistors, USB-C CC pulldowns, MCU straps, ERC/DRC). "
@@ -116,9 +144,16 @@ TOOLS = [
 ]
 
 SYSTEM = """You are a senior hardware engineer working inside cursor-for-pcb, an
-AI-native PCB tool. Turn the user's request into a complete, manufacturable
-circuit by calling tools: add components, wire nets, then `build`. After
-building, call `review_design` and fix any errors it reports before finishing.
+AI-native PCB tool focused on ESP32-class boards. Turn the user's request into a
+complete, manufacturable circuit, then `build` and `review_design`, fixing any
+errors before finishing.
+
+PREFER BLOCKS. The fastest way to a correct board is to compose senior-verified
+blocks with `add_block` (see `list_blocks`): start with `usb_c_power`, then
+`esp32_core` (it returns the free GPIO pins), then peripheral blocks
+(`status_led`, `i2c_bus`, `user_button`) wired to those GPIOs. Blocks come
+pre-decoupled and pre-strapped, so a block-composed board passes review by
+construction. Drop to raw add_part/connect only for parts no block covers.
 
 Pin syntax: 'REF.PIN'. Passives use numbers (R1.1, R1.2, C1.+, C1.-). ICs and
 connectors use friendly names (U1.vin, U1.vout, U1.gnd, U1.3v3, U1.en, U1.io0,
@@ -179,6 +214,16 @@ def execute_tool(state: dict, name: str, args: dict) -> tuple[str, bool]:
                     f"DRC_unconnected={res.drc_unconnected} copper_DRC={res.drc_copper} "
                     f"tracks={res.tracks} | review grade={rv.get('grade')} "
                     f"({rv.get('errors')} errors)"), True
+        if name == "list_blocks":
+            return json.dumps(blocks.BLOCK_HELP), False
+        if name == "add_block":
+            fn = blocks.BLOCKS.get(args["name"])
+            if not fn:
+                return f"unknown block {args['name']}", False
+            opts = {k: v for k, v in args.items()
+                    if k != "name" and v not in (None, "")}
+            info = fn(d, **opts)
+            return json.dumps(info), False
         if name == "review_design":
             from pcbforge import review as _review
             res = build_all(d, state["out_dir"](d))
