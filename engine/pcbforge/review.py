@@ -91,7 +91,8 @@ def _cap_between(design: Design, comp_nets, net_a: str, gnd_required=True) -> bo
     return False
 
 
-def review(design: Design, build_result: dict | None = None) -> Review:
+def review(design: Design, build_result: dict | None = None,
+           sim_result: dict | None = None) -> Review:
     rv = Review()
     pin_net, comp_nets = _index(design)
     add = rv.findings.append
@@ -200,11 +201,26 @@ def review(design: Design, build_result: dict | None = None) -> Review:
 
     # ---- electrical sanity (values / physics, not just topology) -------
     from . import electrical
+    sim_ok = bool(sim_result and sim_result.get("ok"))
     for f in electrical.check(design):
+        # a real SPICE run supersedes the closed-form LED-current estimate
+        if sim_ok and f.code.startswith("LED_I"):
+            continue
         rv.max_score += 1
         if f.severity == "ok":
             rv.score += 1
         add(Finding(f.severity, f.code, f.message))
+
+    # ---- SPICE simulation (run the circuit, read back V/I) -------------
+    if sim_result is not None:
+        if sim_ok:
+            for f in sim_result.get("findings", []):
+                rv.max_score += 1
+                if f.severity == "ok":
+                    rv.score += 1
+                add(Finding(f.severity, f.code, f.message))
+        elif sim_result.get("reason"):
+            add(Finding("info", "SIM", f"simulation skipped: {sim_result['reason']}"))
 
     # ---- build-level verdicts ------------------------------------------
     if build_result:

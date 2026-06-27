@@ -168,6 +168,7 @@
         <span class="badge"><span class="dot warn"></span><span id="drc">DRC —</span></span>
         <span class="badge"><span class="dot warn"></span><span id="route">Route —</span></span>
         <span class="badge"><span class="dot warn"></span><span id="grade">Review —</span></span>
+        <span class="badge"><span class="dot warn"></span><span id="sim">Sim —</span></span>
         <span class="badge" id="counts">0 parts · 0 nets</span>
       </div>
     </section>
@@ -291,7 +292,8 @@ function render(state){
   // build badges
   const b=state.build;
   const ercDot=$("#status .badge:nth-child(1) .dot"), drcDot=$("#status .badge:nth-child(2) .dot"),
-        rtDot=$("#status .badge:nth-child(3) .dot"), gdDot=$("#status .badge:nth-child(4) .dot");
+        rtDot=$("#status .badge:nth-child(3) .dot"), gdDot=$("#status .badge:nth-child(4) .dot"),
+        simDot=$("#status .badge:nth-child(5) .dot");
   if(b){
     $("#erc").textContent=`ERC ${b.erc_errors} err · ${b.erc_warnings} warn`;
     ercDot.className="dot "+(b.erc_errors?"bad":"ok");
@@ -302,11 +304,19 @@ function render(state){
     const rv=b.review||{};
     $("#grade").textContent=`Review ${rv.grade||"—"} (${rv.score||0}/${rv.max_score||0})`;
     gdDot.className="dot "+(rv.errors?"bad":(rv.grade==="A"?"ok":"warn"));
+    const sm=b.simulation||{};
+    if(sm.ok){
+      const v=sm.voltages||{}, rail=v["3V3"]||v["5V"]||v["VBUS"]||v["VIN"];
+      const simErr=(sm.findings||[]).some(f=>f.severity==="error");
+      $("#sim").textContent="Sim "+(rail!=null?rail.toFixed(2)+"V":"ran")+(simErr?" ⚠":" ✓");
+      simDot.className="dot "+(simErr?"bad":"ok");
+    }else{ $("#sim").textContent="Sim —"; simDot.className="dot warn"; }
     if(state.pcb_svg) setTab("pcb");
   }else{
     $("#erc").textContent="ERC —"; $("#drc").textContent="DRC —"; $("#route").textContent="Route —";
-    $("#grade").textContent="Review —";
-    ercDot.className="dot warn"; drcDot.className="dot warn"; rtDot.className="dot warn"; gdDot.className="dot warn";
+    $("#grade").textContent="Review —"; $("#sim").textContent="Sim —";
+    ercDot.className="dot warn"; drcDot.className="dot warn"; rtDot.className="dot warn";
+    gdDot.className="dot warn"; simDot.className="dot warn";
   }
 }
 

@@ -76,6 +76,35 @@ def test_fab_package_is_complete(tmp_path):
     assert any(n.endswith("F_Cu.gtl") for n in names), "missing copper gerber"
 
 
+def test_simulation_catches_unsafe_led(tmp_path):
+    """SPICE must catch a resistor that overdrives the LED (33Ω on 5V ≈ 82 mA)."""
+    from pcbforge import sim
+    if not sim.has_ngspice():
+        import pytest as _pt
+        _pt.skip("ngspice not installed")
+    d = Design(name="bad")
+    d.add_component("header_1x2", "J1")
+    d.add_component("resistor", "R1", "33")
+    d.add_component("led", "D1", "RED")
+    d.connect("5V", "J1.1", "R1.1")
+    d.connect("LED", "R1.2", "D1.a")
+    d.connect("GND", "J1.2", "D1.k")
+    res = build_all(d, tmp_path / "b", drc=True)
+    assert res.review["errors"] >= 1
+    assert any("burn" in f["message"] for f in res.review["findings"])
+
+
+def test_simulation_verifies_regulator_rail(tmp_path):
+    """SPICE must read back ~3.3 V on the regulated rail of a good board."""
+    from pcbforge import sim
+    if not sim.has_ngspice():
+        import pytest as _pt
+        _pt.skip("ngspice not installed")
+    res = build_all(build_example("power_led_board"), tmp_path / "p", drc=False)
+    assert res.simulation["ok"]
+    assert abs(res.simulation["voltages"].get("3V3", 0) - 3.3) < 0.1
+
+
 def test_bom_groups_parts():
     from pcbforge import bom
     design = build_example("power_led_board")

@@ -163,6 +163,20 @@ def review_design() -> dict:
 
 
 @mcp.tool()
+def simulate() -> dict:
+    """Run a SPICE (ngspice) simulation of the current design and read back the
+    operating point — node voltages and LED/branch currents — to verify the
+    circuit actually works (e.g. the 3.3V rail measures 3.3V, LED current is in
+    a safe range, no rail-to-GND short). The deepest validation layer."""
+    from pcbforge import sim as _sim
+    res = _sim.run(_design)
+    return {"ok": res.get("ok", False), "reason": res.get("reason"),
+            "voltages": {k: round(v, 3) for k, v in
+                         (res.get("voltages") or {}).items() if v is not None},
+            "findings": [f.__dict__ for f in res.get("findings", [])]}
+
+
+@mcp.tool()
 def export_bom() -> str:
     """Return the bill of materials as CSV (parts grouped with quantities)."""
     from pcbforge import bom as _bom

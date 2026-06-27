@@ -29,6 +29,7 @@ class BuildResult:
     drc_unconnected: int = 0
     drc_copper: int = 0
     review: dict = field(default_factory=dict)
+    simulation: dict = field(default_factory=dict)
     tracks: int = 0
     vias: int = 0
     routed: int = 0
@@ -149,10 +150,25 @@ def build_all(design: Design, out_dir: str | Path,
     except Exception as exc:
         res.errors.append(f"PCB build failed: {exc}")
 
-    # senior design review over the design + build verdicts
+    # SPICE simulation (run the circuit) — feeds the review
+    sim_result = None
+    try:
+        from . import sim as _sim
+        sim_result = _sim.run(design)
+        res.simulation = {
+            "ok": sim_result.get("ok", False),
+            "reason": sim_result.get("reason"),
+            "voltages": {k: round(v, 3) for k, v in
+                         (sim_result.get("voltages") or {}).items() if v is not None},
+            "findings": [f.__dict__ for f in sim_result.get("findings", [])],
+        }
+    except Exception as exc:
+        res.warnings.append(f"simulation failed: {exc}")
+
+    # senior design review over the design + build verdicts + simulation
     try:
         from . import review as _review
-        rv = _review.review(design, res.to_dict())
+        rv = _review.review(design, res.to_dict(), sim_result)
         res.review = rv.to_dict()
     except Exception as exc:
         res.warnings.append(f"review failed: {exc}")
