@@ -248,15 +248,22 @@ def execute_tool(state: dict, name: str, args: dict) -> tuple[str, bool]:
         return f"ERROR: {exc}", did_build
 
 
-def run(state: dict, message: str, history: list) -> tuple[str, bool]:
+def run(state: dict, message: str, history: list, on_event=None) -> tuple[str, bool]:
     """Drive Claude through a tool-use loop. Returns (reply, did_build).
 
     Each call is self-contained: rather than replaying a (fragile, easily
     desynced) tool-use transcript, we show Claude the *current* design state so
-    follow-ups still work, and start a fresh message thread. This avoids the
-    orphaned-tool_result / stale-context failures that left the board empty.
+    follow-ups still work, and start a fresh message thread.
+
+    ``on_event(dict)`` (optional) is called as work happens — Claude's interim
+    text ({"type":"text",...}) and each tool call ({"type":"tool",...}) — so a
+    UI can show the live thinking / tool activity.
     """
     import anthropic
+
+    def emit(ev):
+        if on_event:
+            on_event(ev)
 
     d: Design = state["design"]
     system = SYSTEM
@@ -275,14 +282,24 @@ def run(state: dict, message: str, history: list) -> tuple[str, bool]:
             tools=TOOLS, messages=messages,
         )
         messages.append({"role": "assistant", "content": resp.content})
+        # surface Claude's interim reasoning/narration
+        for block in resp.content:
+            if block.type == "text" and block.text.strip():
+                emit({"type": "text", "text": block.text.strip()})
         if resp.stop_reason != "tool_use":
             reply = "".join(b.text for b in resp.content if b.type == "text")
             break
         results = []
         for block in resp.content:
             if block.type == "tool_use":
+                arg = block.input or {}
+                label = arg.get("name") or arg.get("type") or arg.get("net") or ""
+                emit({"type": "tool", "name": block.name,
+                      "arg": str(label)[:40]})
                 out, built = execute_tool(state, block.name, block.input)
                 did_build = did_build or built
+                emit({"type": "tool_result", "name": block.name,
+                      "summary": out.splitlines()[0][:90] if out else ""})
                 results.append({"type": "tool_result",
                                 "tool_use_id": block.id, "content": out})
         messages.append({"role": "user", "content": results})

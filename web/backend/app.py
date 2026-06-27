@@ -13,9 +13,11 @@ import asyncio
 import os
 from pathlib import Path
 
+import json as _json
+
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
-from starlette.responses import JSONResponse, FileResponse
+from starlette.responses import JSONResponse, FileResponse, StreamingResponse
 from starlette.routing import Route
 from starlette.staticfiles import StaticFiles
 
@@ -120,6 +122,55 @@ async def chat(request):
                              "state": _snapshot(build_result), "engine": "parser"})
 
 
+async def chat_stream(request):
+    """Like /api/chat but streams the live activity (Claude's interim text and
+    each tool call) as Server-Sent Events, then a final 'done' with the state."""
+    body = await request.json()
+    message = body.get("message", "")
+    loop = asyncio.get_event_loop()
+    queue: asyncio.Queue = asyncio.Queue()
+
+    def on_event(ev):
+        loop.call_soon_threadsafe(queue.put_nowait, ev)
+
+    async def work():
+        async with _lock:
+            try:
+                if llm.available():
+                    _state["out_dir"] = _out_dir
+                    reply, did_build = await run_in_threadpool(
+                        llm.run, _state, message, [], on_event)
+                else:
+                    design, reply, should_build = agent.handle(_state["design"], message)
+                    _state["design"] = design
+                    _state["build"] = None
+                    if should_build:
+                        on_event({"type": "tool", "name": "build", "arg": ""})
+                        await run_in_threadpool(_do_build)
+                    did_build = should_build
+                build_result = _state["build"] if did_build else None
+                on_event({"type": "done", "reply": reply,
+                          "state": _snapshot(build_result)})
+            except Exception as exc:
+                on_event({"type": "done", "reply": f"⚠️ {exc}",
+                          "state": _snapshot(_state.get("build"))})
+            finally:
+                on_event(None)
+
+    async def gen():
+        task = asyncio.create_task(work())
+        while True:
+            ev = await queue.get()
+            if ev is None:
+                break
+            yield f"data: {_json.dumps(ev)}\n\n"
+        await task
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache",
+                                      "X-Accel-Buffering": "no"})
+
+
 async def build(request):
     async with _lock:
         result = await run_in_threadpool(_do_build)
@@ -173,6 +224,7 @@ routes = [
     Route("/api/state", state),
     Route("/api/parts", parts),
     Route("/api/chat", chat, methods=["POST"]),
+    Route("/api/chat_stream", chat_stream, methods=["POST"]),
     Route("/api/build", build, methods=["POST"]),
     Route("/api/new", new_design, methods=["POST"]),
     Route("/api/add", add, methods=["POST"]),

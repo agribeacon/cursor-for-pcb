@@ -39,6 +39,14 @@
   .msg.bot{align-self:flex-start;background:var(--chip);border:1px solid var(--border)}
   .msg.bot code{background:#0d1117;padding:1px 5px;border-radius:4px;color:var(--yellow);font-size:12px}
   .msg.bot strong{color:var(--green)}
+  .activity{display:flex;flex-direction:column;gap:4px;margin:2px 0 8px}
+  .act{display:flex;gap:8px;align-items:flex-start;font-size:12px;padding:5px 9px;
+    background:var(--chip);border:1px solid var(--border);border-radius:8px;color:var(--muted)}
+  .act .ic{flex:0 0 auto}
+  .act .nm{color:var(--accent);font-weight:600;font-family:ui-monospace,Menlo,monospace}
+  .act .rs{color:var(--green)}
+  .act.think{color:var(--text);background:transparent;border:0;padding:2px 4px;line-height:1.4}
+  .act.think .ic{color:var(--yellow)}
   .typing{display:flex;gap:5px;align-items:center}
   .typing .dot{width:7px;height:7px;border-radius:50%;background:var(--muted);
     animation:blink 1.2s infinite both}
@@ -308,18 +316,60 @@ function setBusy(b){
   $(".composer").classList.toggle("busy",b);
   $("#send-btn").disabled=b; $("#build-btn").disabled=b;
 }
+const TOOL_ICON={add_part:"➕",add_block:"🧩",connect:"🔗",build:"⚡",
+  review_design:"🔎",new_design:"📄",load_example:"📦",remove_part:"➖",
+  export_gerbers:"⤓",list_blocks:"📚",list_part_types:"📚",get_design:"👁",export_bom:"📋"};
+function actEl(){ // the live activity container shown above the typing dots
+  let a=$("#activity");
+  if(!a){a=document.createElement("div");a.id="activity";a.className="activity";
+    messages.appendChild(a);}
+  return a;
+}
+function pushActivity(ev){
+  const a=actEl();
+  if(ev.type==="text"){
+    const d=document.createElement("div"); d.className="act think";
+    d.innerHTML=`<span class="ic">💭</span><span>${md(String(ev.text).replace(/</g,"&lt;"))}</span>`;
+    a.appendChild(d);
+  }else if(ev.type==="tool"){
+    const d=document.createElement("div"); d.className="act"; d.dataset.tool=ev.name;
+    const ic=TOOL_ICON[ev.name]||"🔧";
+    d.innerHTML=`<span class="ic">${ic}</span><span class="nm">${ev.name}</span>`
+      +(ev.arg?` <span>${ev.arg}</span>`:"")+` <span class="rs" data-rs></span>`;
+    a.appendChild(d);
+  }else if(ev.type==="tool_result"){
+    const rows=a.querySelectorAll(`.act[data-tool="${ev.name}"]`);
+    const last=rows[rows.length-1];
+    if(last){const rs=last.querySelector("[data-rs]"); if(rs) rs.textContent="→ "+ev.summary;}
+  }
+  messages.scrollTop=messages.scrollHeight;
+}
 async function send(text){
   if(sending) return;          // guard against double-submit
   setBusy(true);
   addMsg(text,"user");
+  const old=$("#activity"); if(old) old.remove();
   showTyping();
   try{
-    const r=await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({message:text})});
-    const data=await r.json();
+    const r=await fetch("/api/chat_stream",{method:"POST",
+      headers:{"Content-Type":"application/json"},body:JSON.stringify({message:text})});
+    const reader=r.body.getReader(), dec=new TextDecoder();
+    let buf="", final=null;
+    while(true){
+      const {value,done}=await reader.read();
+      if(done) break;
+      buf+=dec.decode(value,{stream:true});
+      let i;
+      while((i=buf.indexOf("\n\n"))>=0){
+        const line=buf.slice(0,i).trim(); buf=buf.slice(i+2);
+        if(!line.startsWith("data:")) continue;
+        const ev=JSON.parse(line.slice(5).trim());
+        if(ev.type==="done") final=ev; else pushActivity(ev);
+      }
+    }
     hideTyping();
-    addMsg(data.reply,"bot");
-    render(data.state);
+    const act=$("#activity"); if(act) act.removeAttribute("id"); // keep as history
+    if(final){ addMsg(final.reply,"bot"); render(final.state); }
   }catch(e){ hideTyping(); addMsg("⚠️ "+e,"bot"); }
   finally{ setBusy(false); $("#input").focus(); }
 }
