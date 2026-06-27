@@ -4,7 +4,6 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>cursor-for-pcb</title>
-<script type="module" src="/static/vendor/kicanvas.js"></script>
 <style>
   :root{
     --bg:#15171c; --panel:#1e2127; --panel2:#23272e; --border:#2f343d;
@@ -255,10 +254,10 @@ function bindPanZoom(view){
     drag={x:e.clientX,y:e.clientY}; applyView();});
   window.addEventListener("mouseup",()=>{drag=null;view.classList.remove("panning");});
 }
-bindPanZoom($("#schematic-view"));   // PCB uses KiCanvas's own pan/zoom
-$("#zoom-in").onclick=()=>{if(activeTab==="schematic")zoomBy(1.25);};
-$("#zoom-out").onclick=()=>{if(activeTab==="schematic")zoomBy(1/1.25);};
-$("#zoom-fit").onclick=()=>{if(activeTab==="schematic")fitView();};
+bindPanZoom($("#schematic-view")); bindPanZoom($("#pcb-view"));
+$("#zoom-in").onclick=()=>zoomBy(1.25);
+$("#zoom-out").onclick=()=>zoomBy(1/1.25);
+$("#zoom-fit").onclick=fitView;
 
 function render(state){
   const d=state.design;
@@ -266,15 +265,10 @@ function render(state){
   // schematic → my zoomable SVG layer
   $("#schematic-view .zoomable").innerHTML = state.schematic_svg
     || '<div class="empty">No schematic yet.</div>';
-  // PCB → render the REAL .kicad_pcb with KiCanvas (native KiCad look + zoom/pan)
-  const pv=$("#pcb-view");
-  if(state.build && state.build.pcb_file){
-    pv.innerHTML='<kicanvas-embed controls="full" theme="kicad" '
-      +'src="/api/pcb_file?t='+Date.now()+'"></kicanvas-embed>';
-  }else{
-    pv.innerHTML='<div class="zoomable"><div class="empty">No board yet.<br/>Click <b>⚡ Build</b> to generate the PCB.</div></div>';
-  }
-  requestAnimationFrame(()=>{ if(activeTab==="schematic"){views.schematic.fitted=false; fitView();} });
+  // PCB → kicad-cli's own SVG render (reliable), in the zoomable layer
+  $("#pcb-view .zoomable").innerHTML = state.pcb_svg
+    || '<div class="empty">No board yet.<br/>Click <b>⚡ Build</b> to generate the PCB.</div>';
+  requestAnimationFrame(()=>{ views[activeTab].fitted=false; fitView(); });
   // objects
   $("#objects").innerHTML = d.components.map(c=>
     `<div class="obj"><div><div class="ref">${c.ref}</div>

@@ -9,6 +9,7 @@ Run:  pcbforge-web   (or: uvicorn web.backend.app:app --reload)
 """
 from __future__ import annotations
 
+import asyncio
 import os
 from pathlib import Path
 
@@ -30,6 +31,9 @@ WORKSPACE.mkdir(parents=True, exist_ok=True)
 
 # ---- session state ------------------------------------------------------
 _state = {"design": Design(name="untitled"), "build": None, "history": []}
+# one global design ⇒ serialize mutating requests so concurrent chats/builds
+# can't corrupt each other's state.
+_lock = asyncio.Lock()
 
 
 def _out_dir(d: Design) -> Path:
@@ -99,33 +103,35 @@ async def add(request):
 async def chat(request):
     body = await request.json()
     message = body.get("message", "")
-    if llm.available():
-        # Claude drives the engine via tool use; it calls `build` itself.
-        # Run in a threadpool so the blocking LLM + build don't freeze the server.
-        _state["out_dir"] = _out_dir
-        reply, did_build = await run_in_threadpool(
-            llm.run, _state, message, _state.get("history", []))
-        build_result = _state["build"] if did_build else None
-        return JSONResponse({"reply": reply, "did_build": did_build,
-                             "state": _snapshot(build_result), "engine": "llm"})
-    design, reply, should_build = agent.handle(_state["design"], message)
-    _state["design"] = design
-    _state["build"] = None
-    build_result = await run_in_threadpool(_do_build) if should_build else None
-    return JSONResponse({"reply": reply, "did_build": should_build,
-                         "state": _snapshot(build_result), "engine": "parser"})
+    async with _lock:   # serialize: one mutation of the global design at a time
+        if llm.available():
+            # Claude drives the engine via tool use; runs in a threadpool so the
+            # blocking LLM + build don't freeze the server's event loop.
+            _state["out_dir"] = _out_dir
+            reply, did_build = await run_in_threadpool(llm.run, _state, message, [])
+            build_result = _state["build"] if did_build else None
+            return JSONResponse({"reply": reply, "did_build": did_build,
+                                 "state": _snapshot(build_result), "engine": "llm"})
+        design, reply, should_build = agent.handle(_state["design"], message)
+        _state["design"] = design
+        _state["build"] = None
+        build_result = await run_in_threadpool(_do_build) if should_build else None
+        return JSONResponse({"reply": reply, "did_build": should_build,
+                             "state": _snapshot(build_result), "engine": "parser"})
 
 
 async def build(request):
-    result = await run_in_threadpool(_do_build)
+    async with _lock:
+        result = await run_in_threadpool(_do_build)
     return JSONResponse({"state": _snapshot(result)})
 
 
 async def new_design(request):
-    _state["design"] = Design(name="untitled")
-    _state["build"] = None
-    _state["history"] = []
-    return JSONResponse({"state": _snapshot(None)})
+    async with _lock:
+        _state["design"] = Design(name="untitled")
+        _state["build"] = None
+        _state["history"] = []
+        return JSONResponse({"state": _snapshot(None)})
 
 
 async def pcb_file(request):

@@ -249,17 +249,29 @@ def execute_tool(state: dict, name: str, args: dict) -> tuple[str, bool]:
 
 
 def run(state: dict, message: str, history: list) -> tuple[str, bool]:
-    """Drive Claude through a tool-use loop. Returns (reply, did_build)."""
+    """Drive Claude through a tool-use loop. Returns (reply, did_build).
+
+    Each call is self-contained: rather than replaying a (fragile, easily
+    desynced) tool-use transcript, we show Claude the *current* design state so
+    follow-ups still work, and start a fresh message thread. This avoids the
+    orphaned-tool_result / stale-context failures that left the board empty.
+    """
     import anthropic
 
+    d: Design = state["design"]
+    system = SYSTEM
+    if d.components:
+        system += ("\n\nCURRENT DESIGN (modify this, don't start over unless "
+                   f"asked):\n{json.dumps(d.to_dict())}")
+
     client = anthropic.Anthropic()
-    messages = list(history) + [{"role": "user", "content": message}]
+    messages = [{"role": "user", "content": message}]
     did_build = False
     reply = ""
 
-    for _ in range(12):  # cap tool-use rounds
+    for _ in range(14):  # cap tool-use rounds
         resp = client.messages.create(
-            model=MODEL, max_tokens=4096, system=SYSTEM,
+            model=MODEL, max_tokens=4096, system=system,
             tools=TOOLS, messages=messages,
         )
         messages.append({"role": "assistant", "content": resp.content})
@@ -275,6 +287,4 @@ def run(state: dict, message: str, history: list) -> tuple[str, bool]:
                                 "tool_use_id": block.id, "content": out})
         messages.append({"role": "user", "content": results})
 
-    # keep transcript bounded for the next turn
-    state["history"] = messages[-12:]
-    return (reply or "Done.", did_build)
+    return (reply or "Done — see the board and review.", did_build)
