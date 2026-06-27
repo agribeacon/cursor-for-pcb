@@ -40,7 +40,9 @@ def render(design: Design, cols: int = 3) -> str:
             comp_pins.setdefault(node.ref, []).append((node.pin, name))
 
     box_w, box_h = 150, 100
-    gap_x, gap_y = 150, 80
+    # wide horizontal gap so the net-label tags on facing pins of adjacent
+    # boxes (e.g. R1's right pin and D1's left pin on the same net) don't collide
+    gap_x, gap_y = 260, 90
     pad = 40
     items = list(design.components.items())
     rows = (len(items) + cols - 1) // cols or 1
@@ -91,9 +93,17 @@ def render(design: Design, cols: int = 3) -> str:
                        f'stroke="{col_line}" stroke-width="2"/>')
             out.append(f'<circle cx="{sx0 if left else sx1}" cy="{py}" r="3" '
                        f'fill="{col_line}"/>')
+            # a solid pill behind the net tag so a label never reads as garbled
+            # text even if it ends up near another one
+            label = f"{net} {pin}"
+            w = len(label) * 6.8 + 12
+            rx = (tx - w + 4) if left else (tx - 4)
+            out.append(f'<rect x="{rx:.0f}" y="{py - 9}" width="{w:.0f}" height="18" '
+                       f'rx="5" fill="#21252b" stroke="{col_line}" '
+                       f'stroke-width="1"/>')
             out.append(f'<text x="{tx}" y="{py + 4}" fill="{col_line}" '
                        f'font-size="11" text-anchor="{anc}">{escape(net)}'
-                       f'<tspan fill="#5c6370"> {escape(pin)}</tspan></text>')
+                       f'<tspan fill="#7a8290"> {escape(pin)}</tspan></text>')
 
     # legend
     ly = height - 20
