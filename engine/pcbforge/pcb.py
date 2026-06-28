@@ -193,7 +193,7 @@ def build_board(design: Design, path: str | Path,
     # ---- place on a uniform grid, each part centred in its cell ---------
     n = len(loaded)
     cols = columns or max(1, math.ceil(math.sqrt(n)))
-    margin = 8.0
+    margin = 4.0   # tight board border so small boards aren't oversized
     cxs, cys = [], []
     for idx, (ref, comp, fp, (bx0, by0, bx1, by1)) in enumerate(loaded):
         col, row = idx % cols, idx // cols

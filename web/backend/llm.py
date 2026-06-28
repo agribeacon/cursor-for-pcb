@@ -156,6 +156,9 @@ blocks with `add_block` (see `list_blocks`): start with `usb_c_power`, then
 pre-decoupled and pre-strapped, so a block-composed board passes review by
 construction. Drop to raw add_part/connect only for parts no block covers.
 
+Use clear EDA net names: GND, 5V/3V3/VBUS for rails, and signal names like
+LED_OUT, LED_ANODE, SCL, SDA, EN, IO0 — not vague ones like "LED_path".
+
 Pin syntax: 'REF.PIN'. Passives use numbers (R1.1, R1.2, C1.+, C1.-). ICs and
 connectors use friendly names (U1.vin, U1.vout, U1.gnd, U1.3v3, U1.en, U1.io0,
 J1.vbus, J1.gnd, J1.cc1, J1.cc2, D1.a, D1.k).
