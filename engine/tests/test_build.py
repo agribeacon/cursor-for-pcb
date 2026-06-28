@@ -125,6 +125,17 @@ def test_render_check_catches_fabrication():
     assert any("GHOST" in m for m in render_check.fidelity(d, bad))
 
 
+def test_drone_fc_brushed_builds(tmp_path):
+    """A brushed micro-drone flight controller (ESP32 + IMU + 4 MOSFET motor
+    drivers + battery power) must compose and pass review with no errors."""
+    design = build_example("drone_fc_brushed")
+    assert len(design.components) >= 30
+    res = build_all(design, tmp_path / "drone", drc=True)
+    assert res.erc_errors == 0
+    assert res.drc_unconnected == 0
+    assert res.review["errors"] == 0, res.review["findings"]
+
+
 def test_bom_groups_parts():
     from pcbforge import bom
     design = build_example("power_led_board")

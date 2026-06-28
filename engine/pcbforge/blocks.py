@@ -98,18 +98,58 @@ def user_button(d: Design, gpio_pin: str, rail: str = RAIL_3V3) -> dict:
     return {"refs": [r, sw]}
 
 
+def mosfet_motor_driver(d: Design, gpio_pin: str, vmotor: str = "VBAT") -> dict:
+    """A low-side N-MOSFET driver for one brushed/coreless DC motor (e.g. a
+    micro-drone '716' motor): GPIO → 100Ω gate resistor → MOSFET gate (10k
+    pulldown keeps it off), motor connector between vmotor and the drain, and a
+    flyback Schottky across the motor to clamp the inductive kick. PWM the GPIO
+    to control speed. (Brushed only — not a brushless ESC.)"""
+    q = d.add_component("nmos", value="AO3400").ref
+    rg = d.add_component("resistor", value="100").ref          # gate series
+    rpd = d.add_component("resistor", value="10k").ref    # gate pulldown
+    j = d.add_component("header_1x2").ref                 # motor connector
+    fb = d.add_component("diode_schottky").ref            # flyback
+    drv = "DRV_" + q
+    motor = "M_" + q                                      # switched motor- node
+    d.connect(drv, gpio_pin, f"{rg}.1")
+    d.connect("GATE_" + q, f"{rg}.2", f"{q}.g", f"{rpd}.1")
+    d.connect(GND, f"{q}.s", f"{rpd}.2")
+    d.connect(motor, f"{q}.d", f"{j}.2", f"{fb}.a")
+    d.connect(vmotor, f"{j}.1", f"{fb}.k")
+    return {"refs": [q, rg, rpd, j, fb], "motor_net": motor}
+
+
+def battery_power(d: Design, vbat: str = "VBAT", vout: str = RAIL_3V3) -> dict:
+    """1S LiPo battery input (2-pin JST) → 3.3V LDO for the logic, with bulk +
+    HF decoupling. vbat also feeds the motor drivers directly."""
+    j = d.add_component("header_1x2").ref                 # battery JST
+    u = d.add_component("regulator_3v3", value="AMS1117-3.3").ref
+    cin = d.add_component("capacitor_polarized", value="10uF").ref
+    cout = d.add_component("capacitor_polarized", value="22uF").ref
+    chf = d.add_component("capacitor", value="100nF").ref
+    d.connect(vbat, f"{j}.1", f"{u}.vin", f"{cin}.+")
+    d.connect(GND, f"{j}.2", f"{u}.gnd", f"{cin}.-", f"{cout}.-", f"{chf}.2")
+    d.connect(vout, f"{u}.vout", f"{cout}.+", f"{chf}.1")
+    return {"refs": [j, u, cin, cout, chf]}
+
+
 BLOCKS: dict[str, Callable] = {
     "usb_c_power": usb_c_power,
+    "battery_power": battery_power,
     "esp32_core": esp32_core,
     "status_led": status_led,
     "i2c_bus": i2c_bus,
     "user_button": user_button,
+    "mosfet_motor_driver": mosfet_motor_driver,
 }
 
 BLOCK_HELP = {
     "usb_c_power": "USB-C 5V → 3.3V LDO front-end (CC pulldowns, bulk+HF caps).",
+    "battery_power": "1S LiPo input + 3.3V LDO (bulk+HF). vbat also powers motors.",
     "esp32_core": "ESP32-WROOM + decoupling + EN reset RC/button + IO0 boot strap/button.",
     "status_led": "GPIO status LED + series resistor. opts: gpio_pin, color, value.",
-    "i2c_bus": "I²C pull-ups + 4-pin header. opts: scl_pin, sda_pin.",
+    "i2c_bus": "I²C pull-ups + 4-pin header (e.g. MPU6050 IMU module). opts: scl_pin, sda_pin.",
     "user_button": "Push button on a GPIO with pull-up. opts: gpio_pin.",
+    "mosfet_motor_driver": "Low-side N-MOSFET driver for one brushed DC motor "
+                           "(gate R + pulldown, motor header, flyback). opts: gpio_pin.",
 }

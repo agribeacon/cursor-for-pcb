@@ -24,7 +24,8 @@ from .model import Design
 
 # nominal input-rail voltages (what a bench supply / USB would provide)
 INPUT_V = {"5V": 5.0, "+5V": 5.0, "VBUS": 5.0, "VIN": 5.0, "12V": 12.0,
-           "VCC": 5.0, "VDD": 5.0, "3V3": 3.3, "+3V3": 3.3}
+           "VCC": 5.0, "VDD": 5.0, "3V3": 3.3, "+3V3": 3.3,
+           "VBAT": 3.7, "VLIPO": 3.7}
 REG_VOUT = {"regulator_3v3": 3.3, "reg_5v": 5.0, "reg_7805": 5.0}
 GND_NAMES = {"GND", "GROUND", "AGND", "DGND", "VSS"}
 LED_MODEL = ".model DLED D(IS=1e-20 N=1.9 RS=2)"   # ~2V red/green indicator

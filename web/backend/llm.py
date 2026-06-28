@@ -150,11 +150,21 @@ complete, manufacturable circuit, then `build` and `review_design`, fixing any
 errors before finishing.
 
 PREFER BLOCKS. The fastest way to a correct board is to compose senior-verified
-blocks with `add_block` (see `list_blocks`): start with `usb_c_power`, then
-`esp32_core` (it returns the free GPIO pins), then peripheral blocks
-(`status_led`, `i2c_bus`, `user_button`) wired to those GPIOs. Blocks come
-pre-decoupled and pre-strapped, so a block-composed board passes review by
-construction. Drop to raw add_part/connect only for parts no block covers.
+blocks with `add_block` (see `list_blocks`): power (`usb_c_power` or
+`battery_power`), then `esp32_core` (it returns the free GPIO pins), then
+peripheral blocks (`status_led`, `i2c_bus`, `user_button`, `mosfet_motor_driver`)
+wired to those GPIOs. Blocks come pre-decoupled/strapped, so a block-composed
+board passes review by construction. Drop to raw add_part/connect only for parts
+no block covers.
+
+DON'T REFUSE a complex board outright — build the in-scope subset and clearly
+note what's left out. In scope: an MCU, I²C/SPI sensor modules via a header
+(e.g. an MPU6050 IMU plugs into an `i2c_bus` header), low-side MOSFET drivers for
+BRUSHED/coreless DC motors (`mosfet_motor_driver`, one per motor, PWM a GPIO),
+power, LEDs, buttons. Out of scope (say so, don't fake): brushless ESC timing,
+RF/antenna matching, high-current (>~2A) power planes, controlled impedance.
+Example: a brushed micro-drone ('whoop') flight controller = battery_power +
+esp32_core + i2c_bus(IMU) + 4× mosfet_motor_driver + status_led — build that.
 
 Use clear EDA net names: GND, 5V/3V3/VBUS for rails, and signal names like
 LED_OUT, LED_ANODE, SCL, SDA, EN, IO0 — not vague ones like "LED_path".

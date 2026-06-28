@@ -147,6 +147,26 @@ def esp32_iot_node() -> Design:
     return d
 
 
+def drone_fc_brushed() -> Design:
+    """A brushed micro-drone ('whoop') flight-controller board, block-composed:
+    1S LiPo power → 3.3V LDO, ESP32 core, MPU6050 IMU on I²C, four low-side
+    MOSFET drivers (one per coreless motor, PWM'd from GPIOs) with flyback
+    diodes, and a status LED. In-scope hobby design — no brushless ESC, RF
+    matching, or high-current analysis."""
+    from .. import blocks as B
+    d = Design(name="drone_fc_brushed",
+               notes="Brushed micro-drone FC: 1S LiPo, ESP32, MPU6050 (I2C), "
+                     "4x low-side MOSFET motor drivers, status LED.")
+    B.battery_power(d)                      # VBAT (1S) + 3V3 LDO
+    core = B.esp32_core(d)
+    g = core["gpio"]
+    B.i2c_bus(d, scl_pin=g[0], sda_pin=g[1])          # MPU6050 IMU module
+    for gp in g[2:6]:                                  # 4 motors
+        B.mosfet_motor_driver(d, gp, vmotor="VBAT")
+    B.status_led(d, g[6], "GRN")                       # arm/status LED
+    return d
+
+
 EXAMPLES: dict[str, Callable[[], Design]] = {
     "led_resistor": led_resistor,
     "voltage_divider": voltage_divider,
@@ -154,6 +174,7 @@ EXAMPLES: dict[str, Callable[[], Design]] = {
     "usb_3v3": usb_3v3_regulator,
     "esp32_dev_board": esp32_dev_board,
     "esp32_iot_node": esp32_iot_node,
+    "drone_fc_brushed": drone_fc_brushed,
 }
 
 
