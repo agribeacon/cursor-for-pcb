@@ -141,7 +141,10 @@ def build_all(design: Design, out_dir: str | Path,
         res.poured = rstats.get("poured", [])
         res.pcb_file = str(pcb_file)
         res.pcb_svg = str(out / "pcb.svg")
-        render.pcb_to_svg(pcb_file, res.pcb_svg)
+        # preview = copper + board outline only, so the routing reads clearly.
+        # Silkscreen (refs/outlines) is busy and overlaps SMD pads by footprint
+        # default; it's still in the fab gerbers, just not this preview.
+        render.pcb_to_svg(pcb_file, res.pcb_svg, layers="F.Cu,B.Cu,Edge.Cuts")
         if rep:
             res.drc_violations, res.drc_unconnected = rep.violations, rep.unconnected
             res.drc_copper = _copper_violations(rep)

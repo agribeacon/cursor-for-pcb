@@ -95,7 +95,8 @@
   .zoomable{position:absolute;left:50%;top:50%;transform-origin:0 0;
     will-change:transform;display:flex;align-items:center;justify-content:center}
   .view svg{display:block;background:#fff;border-radius:8px}
-  #schematic-view svg{background:#1e2127}
+  #schematic-view svg{background:#0f1216;border-radius:0}
+  #pcb-view svg{border-radius:0;border:1px solid var(--border)}
   #pcb-view{cursor:default}
   #pcb-view kicanvas-embed{position:absolute;inset:0;width:100%;height:100%}
   .empty{color:var(--muted);text-align:center;line-height:1.6;white-space:nowrap}
@@ -442,8 +443,8 @@ function render(state){
   if(b){
     $("#erc").textContent=`ERC ${b.erc_errors} err · ${b.erc_warnings} warn`;
     ercDot.className="dot "+(b.erc_errors?"bad":"ok");
-    $("#drc").textContent=`DRC ${b.drc_violations} viol · ${b.drc_unconnected} unconn`;
-    drcDot.className="dot "+(b.drc_unconnected?"bad":(b.drc_violations?"warn":"ok"));
+    $("#drc").textContent=`DRC ${b.drc_copper||0} copper · ${b.drc_unconnected} unconn`;
+    drcDot.className="dot "+(b.drc_unconnected?"bad":(b.drc_copper?"warn":"ok"));
     $("#route").textContent=`Route ${b.tracks||0} tracks · ${b.vias||0} vias`;
     rtDot.className="dot "+(b.unrouted?"warn":"ok");
     const rv=b.review||{};

@@ -22,8 +22,11 @@ def _run(args: list[str]) -> subprocess.CompletedProcess:
 def pcb_to_svg(pcb: str | Path, out: str | Path,
                layers: str = "F.Cu,B.Cu,F.SilkS,Edge.Cuts") -> Path:
     out = Path(out)
+    # --exclude-drawing-sheet drops the page frame / title block (it sits at the
+    # page origin, far from the board, and otherwise shows up as a stray box).
     res = _run(["pcb", "export", "svg", "--output", str(out),
-                "--layers", layers, "--page-size-mode", "2", str(pcb)])
+                "--layers", layers, "--page-size-mode", "2",
+                "--exclude-drawing-sheet", str(pcb)])
     if not out.exists():
         raise RuntimeError(f"pcb->svg failed: {res.stderr or res.stdout}")
     return out

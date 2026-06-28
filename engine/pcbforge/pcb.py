@@ -39,6 +39,28 @@ def _load_footprint(lib_id: str):
     return fp
 
 
+def _position_reference(fp, bbox) -> None:
+    """Move the reference designator just above the part (centred) at a readable
+    size, so silk labels don't sit on the pads (unreadable + silk-over-copper DRC)."""
+    bx0, by0, bx1, by1 = bbox
+    cx = round((bx0 + bx1) / 2, 3)
+    ty = round(by0 - 0.9, 3)
+    for item in getattr(fp, "graphicItems", []) or []:
+        if getattr(item, "type", None) == "reference":
+            try:
+                from kiutils.items.common import Position as _P
+                item.position = _P(X=cx, Y=ty)
+            except Exception:
+                pass
+            try:
+                item.effects.font.height = item.effects.font.width = 0.8
+                item.effects.font.thickness = 0.12
+            except Exception:
+                pass
+            if hasattr(item, "hide"):
+                item.hide = False
+
+
 def _set_text(fp, kind: str, value: str, hide: bool = False) -> None:
     """Set the Reference/Value of a loaded footprint across kiutils versions.
 
@@ -183,6 +205,7 @@ def build_board(design: Design, path: str | Path,
                                Y=round(cell_cy - bcy, 3))
         _set_text(fp, "reference", ref)
         _set_text(fp, "value", comp.value, hide=True)
+        _position_reference(fp, (bx0, by0, bx1, by1))
         for pad in fp.pads:
             key = (ref, str(pad.number))
             if key in pad_net:
@@ -199,10 +222,15 @@ def build_board(design: Design, path: str | Path,
         y1 = max(cys) + cell_h / 2 + gap
     else:
         x0, y0, x1, y1 = 0, 0, 40, 30
-    board.graphicItems.append(GrRect(
-        start=Position(X=round(x0, 3), Y=round(y0, 3)),
-        end=Position(X=round(x1, 3), Y=round(y1, 3)),
-        layer="Edge.Cuts", width=0.15))
+    # Draw the outline as four explicit segments — a GrRect with this kiutils'
+    # legacy (width ..) stroke renders as a broken/partial box in kicad-cli.
+    from kiutils.items.gritems import GrLine
+    corners = [(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)]
+    for (ax, ay), (bx, by) in zip(corners, corners[1:]):
+        board.graphicItems.append(GrLine(
+            start=Position(X=round(ax, 3), Y=round(ay, 3)),
+            end=Position(X=round(bx, 3), Y=round(by, 3)),
+            layer="Edge.Cuts", width=0.15))
 
     power_codes = {net_codes[n] for n in design.nets if n.upper() in POWER_NETS}
 
