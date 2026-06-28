@@ -222,6 +222,17 @@ def review(design: Design, build_result: dict | None = None,
                   f"{ref} {pin.upper()} is pulled",
                   f"{ref} {what} missing (floating strap pin)", severity="warn")
 
+    # ---- naming sanity: a "blinker"/"oscillator" needs an oscillator -----
+    OSC_TYPES = {"ne555", "esp32", "crystal"}
+    nm = design.name.lower()
+    if any(w in nm for w in ("blink", "flash", "oscillat", "pwm", "astable")):
+        has_osc = any(c.type in OSC_TYPES for c in design.components.values())
+        check(has_osc, 1, "NAMING",
+              "name matches an oscillator/timer part present in the design",
+              f"'{design.name}' is named like a blinker/oscillator but has no "
+              f"timer/MCU/oscillator — it's a steady indicator, not a blinker",
+              severity="warn")
+
     # ---- electrical sanity (values / physics, not just topology) -------
     from . import electrical
     sim_ok = bool(sim_result and sim_result.get("ok"))
