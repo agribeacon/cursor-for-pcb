@@ -44,6 +44,29 @@ def _out_dir(d: Design) -> Path:
     return p
 
 
+def _inspector(d: Design) -> list[dict]:
+    """Per-component detail for the right-panel inspector."""
+    # ref -> [(pin, net)]
+    pins: dict[str, list] = {r: [] for r in d.components}
+    for name, net in d.nets.items():
+        for nd in net.nodes:
+            pins.setdefault(nd.ref, []).append({"pin": nd.pin, "net": name})
+    rows = []
+    for ref, comp in d.components.items():
+        try:
+            pt = library.resolve(comp.type)
+            fp, desc = comp.resolved_footprint(), pt.description
+        except Exception:
+            fp, desc = "", ""
+        rows.append({
+            "ref": ref, "type": comp.type, "value": comp.value,
+            "footprint": fp, "description": desc,
+            "pins": sorted(pins.get(ref, []), key=lambda x: x["pin"]),
+            "nets": sorted({p["net"] for p in pins.get(ref, [])}),
+        })
+    return rows
+
+
 def _snapshot(build_result=None) -> dict:
     d: Design = _state["design"]
     pcb = None
@@ -54,6 +77,7 @@ def _snapshot(build_result=None) -> dict:
     return {
         "design": d.to_dict(),
         "warnings": d.validate(),
+        "inspector": _inspector(d),
         "schematic_svg": schematic_svg.render(d) if d.components else "",
         "pcb_svg": pcb,
         "build": build_result,

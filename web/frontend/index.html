@@ -108,15 +108,45 @@
   .dot{width:8px;height:8px;border-radius:50%}
   .ok{background:var(--green)} .warn{background:var(--yellow)} .bad{background:var(--red)}
   /* sidebar */
-  .side{background:var(--panel);border-left:1px solid var(--border);overflow:auto;padding:12px}
-  .side h3{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:6px 0 10px}
-  .obj{display:flex;justify-content:space-between;padding:8px 10px;background:var(--chip);
-    border:1px solid var(--border);border-radius:8px;margin-bottom:6px}
-  .obj .ref{font-weight:700;color:var(--accent)}
-  .obj .val{color:var(--green)}
-  .obj .ty{color:var(--muted);font-size:11px}
-  .net{padding:6px 10px;border-radius:6px;background:var(--chip);margin-bottom:5px;font-size:12px}
-  .net b{color:var(--yellow)}
+  .side{background:var(--panel);border-left:1px solid var(--border);overflow:auto;padding:0}
+  .panel{padding:12px 12px 14px;border-bottom:1px solid var(--border)}
+  .side h3{font-size:10.5px;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);
+    margin:0 0 9px;display:flex;justify-content:space-between;align-items:center;font-weight:600}
+  .side h3 .count{color:var(--border);font-weight:400}
+  .side h3 .x{cursor:pointer;color:var(--muted)} .side h3 .x:hover{color:var(--text)}
+  .muted-s{color:var(--muted);font-size:12px}
+  .obj{display:flex;justify-content:space-between;align-items:center;padding:7px 10px;
+    background:var(--chip);border:1px solid var(--border);border-radius:7px;margin-bottom:5px;cursor:pointer}
+  .obj:hover{border-color:var(--accent)} .obj.sel{border-color:var(--accent);background:#243044}
+  .obj .ref{font-weight:700;color:var(--accent);font-size:13px}
+  .obj .ty{color:var(--muted);font-size:10.5px}
+  .obj .val{color:var(--yellow);font-size:12px}
+  .net{display:flex;gap:6px;align-items:center;padding:6px 9px;border-radius:6px;
+    background:var(--chip);margin-bottom:4px;font-size:11.5px;cursor:pointer}
+  .net:hover{background:#243044}
+  .net .swatch{width:9px;height:9px;border-radius:2px;flex:0 0 auto}
+  .net b{color:var(--text);font-weight:600} .net .pins{color:var(--muted)}
+  /* inspector */
+  #inspector .row{display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid #1b2027}
+  #inspector .k{color:var(--muted)} #inspector .v{color:var(--text);text-align:right}
+  #inspector .pinrow{font-size:11px;color:var(--text);padding:2px 0}
+  #inspector .pinrow .pn{color:var(--muted)}
+  /* validation report */
+  .rep-grade{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+  .rep-grade .g{font-size:22px;font-weight:800;width:34px;height:34px;border-radius:8px;
+    display:flex;align-items:center;justify-content:center}
+  .g.A{background:#1f3d2a;color:#7ee787} .g.B{background:#33371c;color:#e3c558}
+  .g.C{background:#3a2a1c;color:#e0a060} .g.D,.g.F{background:#3d1f24;color:#ff7b85}
+  .rep-line{display:flex;justify-content:space-between;font-size:11.5px;padding:3px 0}
+  .rep-line span{background:none}
+  .rep-line .good{color:#7ee787} .rep-line .erv{color:#ff7b85} .rep-line .wrv{color:#e3c558}
+  .finding{display:flex;gap:6px;font-size:11px;padding:4px 6px;border-radius:5px;margin-top:4px;cursor:pointer}
+  .finding.error{background:#2a1518;color:#ff9ba3} .finding.warn{background:#272010;color:#e3c558}
+  .finding:hover{outline:1px solid var(--border)}
+  /* schematic highlight */
+  #schematic-view svg.dim .comp:not(.hl), #schematic-view svg.dim .net:not(.hl){opacity:.18;transition:opacity .12s}
+  #schematic-view svg .comp, #schematic-view svg .net{transition:opacity .12s;cursor:pointer}
+  #schematic-view svg .hl{opacity:1}
 </style>
 </head>
 <body>
@@ -177,10 +207,22 @@
     </section>
 
     <aside class="side">
-      <h3>Components</h3>
-      <div id="objects"></div>
-      <h3 style="margin-top:18px">Nets</h3>
-      <div id="nets"></div>
+      <div class="panel" id="inspector-panel" style="display:none">
+        <h3>Inspector <span class="x" id="insp-close">✕</span></h3>
+        <div id="inspector"></div>
+      </div>
+      <div class="panel">
+        <h3>Components <span class="count" id="comp-count"></span></h3>
+        <div id="objects"></div>
+      </div>
+      <div class="panel">
+        <h3>Nets <span class="count" id="net-count"></span></h3>
+        <div id="nets"></div>
+      </div>
+      <div class="panel">
+        <h3>Validation</h3>
+        <div id="report"><div class="muted-s">Build to validate.</div></div>
+      </div>
     </aside>
   </main>
 </div>
@@ -271,8 +313,87 @@ $("#zoom-in").onclick=()=>zoomBy(1.25);
 $("#zoom-out").onclick=()=>zoomBy(1/1.25);
 $("#zoom-fit").onclick=fitView;
 
+// ---- inspector / highlight / report -----------------------------------
+let lastState=null, selRef=null, netColors={}, schemBound=false;
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const cssEsc=(window.CSS&&CSS.escape)?CSS.escape:(s=>String(s).replace(/["\\]/g,"\\$&"));
+const PWR=new Set(["5V","+5V","3V3","+3V3","VCC","VDD","VBUS","VIN","12V"]);
+const GNDN=new Set(["GND","GROUND","AGND","DGND","VSS"]);
+const SIG=["#6cb6ff","#a6da95","#e0af68","#c699e8","#7ad1d1","#f7768e"];
+function computeNetColors(d){
+  netColors={}; let si=0;
+  for(const n of d.nets){
+    const u=n.name.toUpperCase();
+    if(GNDN.has(u)) netColors[n.name]="#8b97ab";
+    else if(PWR.has(u)) netColors[n.name]="#f7768e";
+    else netColors[n.name]=SIG[(si++)%SIG.length];
+  }
+}
+const netColor=name=>netColors[name]||"#7d8aa0";
+const svgRoot=()=>$("#schematic-view svg");
+function clearHL(){const s=svgRoot();if(!s)return;s.classList.remove("dim");
+  s.querySelectorAll(".hl").forEach(e=>e.classList.remove("hl"));}
+function highlightNet(net){const s=svgRoot();if(!s)return;clearHL();s.classList.add("dim");
+  s.querySelectorAll(`[data-net="${cssEsc(net)}"]`).forEach(e=>e.classList.add("hl"));
+  const n=(lastState?.design.nets||[]).find(x=>x.name===net);
+  (n?n.nodes:[]).forEach(nd=>s.querySelectorAll(`[data-ref="${cssEsc(nd.ref)}"]`).forEach(e=>e.classList.add("hl")));}
+function highlightRef(ref){const s=svgRoot();if(!s)return;clearHL();s.classList.add("dim");
+  s.querySelectorAll(`[data-ref="${cssEsc(ref)}"]`).forEach(e=>e.classList.add("hl"));
+  const c=(lastState?.inspector||[]).find(x=>x.ref===ref);
+  (c?c.nets:[]).forEach(net=>s.querySelectorAll(`[data-net="${cssEsc(net)}"]`).forEach(e=>e.classList.add("hl")));}
+function showInspector(ref){
+  selRef=ref;
+  const c=(lastState?.inspector||[]).find(x=>x.ref===ref); if(!c) return;
+  $("#objects").querySelectorAll(".obj").forEach(o=>o.classList.toggle("sel",o.dataset.ref===ref));
+  const rows=[["Reference",c.ref],["Type",c.type],["Value",c.value||"—"],
+              ["Footprint",c.footprint||"—"],["Description",c.description||"—"]];
+  let h=rows.map(([k,v])=>`<div class="row"><span class="k">${k}</span><span class="v">${esc(v)}</span></div>`).join("");
+  h+=`<div class="row"><span class="k">Pins → nets</span><span class="v"></span></div>`;
+  h+=c.pins.map(p=>`<div class="pinrow"><span class="pn">${esc(p.pin)}</span> → `
+     +`<b style="color:${netColor(p.net)}">${esc(p.net)}</b></div>`).join("");
+  $("#inspector").innerHTML=h; $("#inspector-panel").style.display="";
+  highlightRef(ref);
+}
+function closeInspector(){selRef=null;$("#inspector-panel").style.display="none";
+  $("#objects").querySelectorAll(".obj").forEach(o=>o.classList.remove("sel"));clearHL();}
+function renderReport(b){
+  const el=$("#report");
+  if(!b){el.innerHTML='<div class="muted-s">Build to validate.</div>';return;}
+  const rv=b.review||{}, sm=b.simulation||{};
+  const v=sm.voltages||{}, rail=v["3V3"]??v["5V"]??v["VBUS"]??v["VIN"];
+  let h=`<div class="rep-grade"><div class="g ${rv.grade||'F'}">${rv.grade||'—'}</div>`
+    +`<div><div style="font-size:12px;color:var(--text)">${rv.errors||0} errors · ${rv.warnings||0} warnings</div>`
+    +`<div class="muted-s">${rv.score||0}/${rv.max_score||0} checks passed</div></div></div>`;
+  const ln=(l,cls,t)=>`<div class="rep-line"><span>${l}</span><span class="${cls}">${t}</span></div>`;
+  h+=ln("ERC",b.erc_errors?"erv":"good",`${b.erc_errors} err`);
+  h+=ln("DRC",b.drc_unconnected?"erv":(b.drc_copper?"wrv":"good"),`${b.drc_copper||0} copper · ${b.drc_unconnected||0} unconn`);
+  h+=ln("Route",b.unrouted?"wrv":"good",`${b.tracks||0} tracks · ${b.vias||0} vias`);
+  h+=ln("Sim",sm.ok?"good":"wrv",sm.ok?(rail!=null?rail.toFixed(2)+"V ✓":"ran ✓"):"n/a");
+  (rv.findings||[]).filter(f=>f.severity==="error"||f.severity==="warn").forEach(f=>{
+    h+=`<div class="finding ${f.severity}">${f.severity==="error"?"✗":"⚠"} ${esc(f.message)}</div>`;});
+  el.innerHTML=h;
+  el.querySelectorAll(".finding").forEach(fe=>fe.onclick=()=>{
+    const m=fe.textContent.match(/\b([A-Z]{1,3}\d+)\b/); if(m){setTab("schematic");showInspector(m[1]);}});
+}
+function bindSchematicEvents(){
+  if(schemBound) return; schemBound=true;
+  const c=$("#schematic-view");
+  c.addEventListener("mousemove",e=>{
+    if(selRef||e.buttons) return;             // pinned, or panning
+    const g=e.target.closest("[data-net],[data-ref]");
+    if(!g){clearHL();return;}
+    if(g.dataset.net) highlightNet(g.dataset.net); else highlightRef(g.dataset.ref);
+  });
+  c.addEventListener("mouseleave",()=>{if(!selRef)clearHL();});
+  c.addEventListener("click",e=>{
+    const g=e.target.closest("[data-ref]");
+    if(g&&g.dataset.ref){e.stopPropagation();showInspector(g.dataset.ref);}});
+}
+
 function render(state){
   const d=state.design;
+  computeNetColors(d);
+  if(selRef && !d.components.find(c=>c.ref===selRef)) closeInspector();
   $("#design-name").textContent=d.name;
   // schematic → my zoomable SVG layer
   $("#schematic-view .zoomable").innerHTML = state.schematic_svg
@@ -287,17 +408,32 @@ function render(state){
         : '<div class="empty">Add parts first, then generate the PCB.</div>');
   const gp=$("#gen-pcb"); if(gp) gp.onclick=build;
   requestAnimationFrame(()=>{ views[activeTab].fitted=false; fitView(); });
-  // objects
+  lastState=state;
+  bindSchematicEvents();
+  // components (clickable -> inspector)
   $("#objects").innerHTML = d.components.map(c=>
-    `<div class="obj"><div><div class="ref">${c.ref}</div>
-     <div class="ty">${c.type}</div></div><div class="val">${c.value||""}</div></div>`).join("")
-    || '<div class="empty" style="font-size:12px">no parts</div>';
-  // nets
-  $("#nets").innerHTML = d.nets.map(n=>
-    `<div class="net"><b>${n.name}</b> · ${n.nodes.map(x=>x.ref+"."+x.pin).join(", ")}</div>`).join("")
-    || '<div class="empty" style="font-size:12px">no nets</div>';
-  // counts
+    `<div class="obj" data-ref="${c.ref}"><div><span class="ref">${c.ref}</span>
+     <span class="ty">  ${c.type}</span></div><div class="val">${esc(c.value||"")}</div></div>`).join("")
+    || '<div class="muted-s">no parts</div>';
+  $("#comp-count").textContent=d.components.length;
+  $("#objects").querySelectorAll(".obj").forEach(el=>{
+    const ref=el.dataset.ref;
+    el.onmouseenter=()=>highlightRef(ref); el.onmouseleave=()=>{if(!selRef)clearHL();};
+    el.onclick=()=>showInspector(ref);
+  });
+  // nets (clickable -> highlight)
+  $("#nets").innerHTML = d.nets.map(n=>{
+    const col=netColor(n.name);
+    return `<div class="net" data-net="${esc(n.name)}"><span class="swatch" style="background:${col}"></span>`
+      +`<b>${esc(n.name)}</b><span class="pins">· ${n.nodes.map(x=>x.ref+"."+x.pin).join(", ")}</span></div>`;
+  }).join("") || '<div class="muted-s">no nets</div>';
+  $("#net-count").textContent=d.nets.length;
+  $("#nets").querySelectorAll(".net").forEach(el=>{
+    const net=el.dataset.net;
+    el.onmouseenter=()=>highlightNet(net); el.onmouseleave=()=>{if(!selRef)clearHL();};
+  });
   $("#counts").textContent = `${d.components.length} parts · ${d.nets.length} nets`;
+  renderReport(state.build);
   // build badges
   const b=state.build;
   const ercDot=$("#status .badge:nth-child(1) .dot"), drcDot=$("#status .badge:nth-child(2) .dot"),
@@ -456,6 +592,7 @@ async function exportFab(){
   finally{ setBusy(false); }
 }
 $("#export-btn").onclick=exportFab;
+$("#insp-close").onclick=closeInspector;
 
 /* ---- Add palette (manual part/block insertion) ------------------------ */
 const palette=$("#palette");

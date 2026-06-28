@@ -180,7 +180,9 @@ def render(design: Design, cols: int = 4) -> str:
     out.append(f'<text x="{pad}" y="32" fill="{TEXT}" font-size="15" font-weight="700">'
                f'{escape(design.name)}</text>')
 
-    # place components, collect pin coordinates
+    # place components, collect pin coordinates. Each component is wrapped in a
+    # <g data-ref="..."> and each net's elements in <g data-net="..."> so the UI
+    # can hover/click-highlight.
     pin_xy: dict[tuple, tuple] = {}
     body: list[str] = []
     for idx, (ref, comp) in enumerate(items):
@@ -188,51 +190,52 @@ def render(design: Design, cols: int = 4) -> str:
         cx = pad + c * slot_w + slot_w // 2
         cy = pad + 30 + r * slot_h + slot_h // 2
         pt = library.resolve(comp.type)
-        # ordered friendly pins this component uses
         pins_used = [p for (rf, p) in pin_net if rf == ref]
+        g = [f'<g class="comp" data-ref="{escape(ref)}">']
         sym = _symbol(comp.type, cx, cy, pins_used[:2]) if len(pins_used) == 2 else None
         if sym:
             svg, pins = sym
-            body.append(svg)
-            body.append(f'<text x="{cx}" y="{cy-26}" fill="{REF}" font-size="13" '
-                        f'font-weight="700" text-anchor="middle">{escape(ref)}</text>')
+            g.append(svg)
+            g.append(f'<text x="{cx}" y="{cy-26}" fill="{REF}" font-size="13" '
+                     f'font-weight="700" text-anchor="middle">{escape(ref)}</text>')
             if comp.value:
-                body.append(f'<text x="{cx}" y="{cy+34}" fill="{VAL}" font-size="12" '
-                            f'text-anchor="middle">{escape(comp.value)}</text>')
+                g.append(f'<text x="{cx}" y="{cy+34}" fill="{VAL}" font-size="12" '
+                         f'text-anchor="middle">{escape(comp.value)}</text>')
             for p, xy in pins.items():
                 pin_xy[(ref, p)] = xy
         else:
-            # IC / connector / multi-pin → clean labelled box with pin stubs
             np = max(len(pins_used), 1)
             bh = max(70, 22 + ((np + 1) // 2) * 22)
             bw = 92
             x0, y0 = cx - bw // 2, cy - bh // 2
-            body.append(f'<rect x="{x0}" y="{y0}" width="{bw}" height="{bh}" rx="6" '
-                        f'fill="#161b22" stroke="{SYM}" stroke-width="1.5"/>')
-            body.append(f'<text x="{cx}" y="{y0+18}" fill="{REF}" font-size="13" '
-                        f'font-weight="700" text-anchor="middle">{escape(ref)}</text>')
+            g.append(f'<rect x="{x0}" y="{y0}" width="{bw}" height="{bh}" rx="6" '
+                     f'fill="#161b22" stroke="{SYM}" stroke-width="1.5"/>')
+            g.append(f'<text x="{cx}" y="{y0+18}" fill="{REF}" font-size="13" '
+                     f'font-weight="700" text-anchor="middle">{escape(ref)}</text>')
             sub = comp.value or pt.key
-            body.append(f'<text x="{cx}" y="{y0+33}" fill="{MUTED}" font-size="9.5" '
-                        f'text-anchor="middle">{escape(sub[:14])}</text>')
+            g.append(f'<text x="{cx}" y="{y0+33}" fill="{MUTED}" font-size="9.5" '
+                     f'text-anchor="middle">{escape(sub[:14])}</text>')
             for pidx, p in enumerate(pins_used):
                 left = pidx % 2 == 0
                 py = y0 + 44 + (pidx // 2) * 20
                 px = x0 if left else x0 + bw
                 xo = px - 16 if left else px + 16
-                body.append(f'<line x1="{px}" y1="{py}" x2="{xo}" y2="{py}" stroke="{WIRE}" stroke-width="1.5"/>')
-                body.append(f'<text x="{px + (5 if left else -5)}" y="{py-3}" fill="{MUTED}" '
-                            f'font-size="8" text-anchor="{"start" if left else "end"}">{escape(p)}</text>')
+                g.append(f'<line x1="{px}" y1="{py}" x2="{xo}" y2="{py}" stroke="{WIRE}" stroke-width="1.5"/>')
+                g.append(f'<text x="{px + (5 if left else -5)}" y="{py-3}" fill="{MUTED}" '
+                         f'font-size="8" text-anchor="{"start" if left else "end"}">{escape(p)}</text>')
                 pin_xy[(ref, p)] = (xo, py)
+        g.append('</g>')
+        body.append("".join(g))
 
-    # power / ground symbols at their pins
+    # power / ground symbols at their pins (tagged by net for highlighting)
     for (ref, p), net in pin_net.items():
         if (ref, p) not in pin_xy:
             continue
         x, y = pin_xy[(ref, p)]
         if _is_gnd(net):
-            out.append(_gnd_symbol(x, y, down=True))
+            out.append(f'<g class="net" data-net="{escape(net)}">{_gnd_symbol(x, y, down=True)}</g>')
         elif _is_power(net):
-            out.append(_power_symbol(x, y, net, up=True))
+            out.append(f'<g class="net" data-net="{escape(net)}">{_power_symbol(x, y, net, up=True)}</g>')
 
     out.extend(body)
 
@@ -244,20 +247,21 @@ def render(design: Design, cols: int = 4) -> str:
         col = sig_color[net]
         pts.sort()
         bus_y = min(p[1] for p in pts) - 26
-        # vertical drop from each pin to the bus, then a horizontal bus
         xs = [p[0] for p in pts]
-        out.append(f'<line x1="{min(xs)}" y1="{bus_y}" x2="{max(xs)}" y2="{bus_y}" '
-                   f'stroke="{col}" stroke-width="2"/>')
+        w = [f'<g class="net" data-net="{escape(net)}">']
+        w.append(f'<line x1="{min(xs)}" y1="{bus_y}" x2="{max(xs)}" y2="{bus_y}" '
+                 f'stroke="{col}" stroke-width="2"/>')
         for (x, y) in pts:
-            out.append(f'<line x1="{x}" y1="{y}" x2="{x}" y2="{bus_y}" stroke="{col}" stroke-width="2"/>')
-            out.append(f'<circle cx="{x}" cy="{y}" r="2.5" fill="{col}"/>')
-        # net label centred on the bus
+            w.append(f'<line x1="{x}" y1="{y}" x2="{x}" y2="{bus_y}" stroke="{col}" stroke-width="2"/>')
+            w.append(f'<circle cx="{x}" cy="{y}" r="2.5" fill="{col}"/>')
         mx = (min(xs) + max(xs)) // 2
         tw = len(net) * 6.6 + 10
-        out.append(f'<rect x="{mx-tw/2:.0f}" y="{bus_y-17}" width="{tw:.0f}" height="14" rx="4" '
-                   f'fill="{BG}" stroke="{col}" stroke-width="1"/>')
-        out.append(f'<text x="{mx}" y="{bus_y-6}" fill="{col}" font-size="10.5" '
-                   f'text-anchor="middle">{escape(net)}</text>')
+        w.append(f'<rect x="{mx-tw/2:.0f}" y="{bus_y-17}" width="{tw:.0f}" height="14" rx="4" '
+                 f'fill="{BG}" stroke="{col}" stroke-width="1"/>')
+        w.append(f'<text x="{mx}" y="{bus_y-6}" fill="{col}" font-size="10.5" '
+                 f'text-anchor="middle">{escape(net)}</text>')
+        w.append('</g>')
+        out.append("".join(w))
 
     out.append("</svg>")
     return "\n".join(out)
