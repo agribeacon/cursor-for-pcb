@@ -105,6 +105,26 @@ def test_simulation_verifies_regulator_rail(tmp_path):
     assert abs(res.simulation["voltages"].get("3V3", 0) - 3.3) < 0.1
 
 
+@pytest.mark.parametrize("name", ["led_resistor", "power_led_board", "usb_3v3",
+                                  "esp32_dev_board", "esp32_iot_node"])
+def test_schematic_render_is_faithful(name):
+    """The schematic SVG must reflect the design exactly — no invented or dropped
+    components/nets, and no overlapping symbols (the view can't lie)."""
+    from pcbforge import schematic_svg, render_check
+    d = build_example(name)
+    issues = render_check.check(d, schematic_svg.render(d))
+    assert not issues, issues
+
+
+def test_render_check_catches_fabrication():
+    """The fidelity rule must catch a net that isn't in the design."""
+    from pcbforge import schematic_svg, render_check
+    d = build_example("led_resistor")
+    bad = schematic_svg.render(d).replace(
+        "</svg>", '<g class="net" data-net="GHOST"></g></svg>')
+    assert any("GHOST" in m for m in render_check.fidelity(d, bad))
+
+
 def test_bom_groups_parts():
     from pcbforge import bom
     design = build_example("power_led_board")
